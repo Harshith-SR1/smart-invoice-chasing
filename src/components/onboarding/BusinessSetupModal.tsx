@@ -1,0 +1,125 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Building2, ArrowRight, Check } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+
+export const BusinessSetupModal: React.FC = () => {
+  const { workspace, setWorkspace, setActiveScreen, showToast } = useApp();
+  
+  const [businessName, setBusinessName] = useState(workspace.businessName);
+  const [businessType, setBusinessType] = useState(workspace.businessType);
+  const [country, setCountry] = useState(workspace.country);
+  const [currency, setCurrency] = useState(workspace.currency);
+  const [businessEmail, setBusinessEmail] = useState(workspace.businessEmail);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setWorkspace({
+      ...workspace,
+      businessName,
+      businessType,
+      country,
+      currency,
+      businessEmail,
+    });
+    showToast('Business workspace created!', 'success');
+    setActiveScreen('import_data');
+  };
+
+  return (
+    <div className="min-h-screen bg-[#070b14] flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="w-full max-w-lg bg-slate-950 border border-slate-800 rounded-3xl p-8 shadow-2xl relative z-10">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+            <Building2 className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[11px] font-mono uppercase tracking-widest text-emerald-400">Step 1 of 3</span>
+            <h2 className="text-xl font-bold text-white leading-tight">Tell us about your business</h2>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Business Name</label>
+            <input
+              type="text"
+              required
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              placeholder="e.g. Apex Creative Agency"
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Business Type</label>
+              <select
+                value={businessType}
+                onChange={(e) => setBusinessType(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+              >
+                <option value="Agency">Agency</option>
+                <option value="Freelancer">Freelancer / Consultant</option>
+                <option value="Service Business">Service Business</option>
+                <option value="B2B Software / SaaS">B2B Software / SaaS</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Currency</label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+              >
+                <option value="INR (₹)">INR (₹)</option>
+                <option value="USD ($)">USD ($)</option>
+                <option value="EUR (€)">EUR (€)</option>
+                <option value="GBP (£)">GBP (£)</option>
+                <option value="AED (AED)">AED (AED)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Country</label>
+              <input
+                type="text"
+                required
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Finance Email</label>
+              <input
+                type="email"
+                required
+                value={businessEmail}
+                onChange={(e) => setBusinessEmail(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="pt-4">
+            <button
+              type="submit"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-sm"
+            >
+              Continue to Data Import
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: 224 55% 6%;
+    --foreground: 225 100% 98%;
+    --card: 228 52% 14%;
+    --card-foreground: 225 100% 98%;
+    --popover: 228 52% 14%;
+    --popover-foreground: 225 100% 98%;
+    --primary: 225 100% 65%;
+    --primary-foreground: 224 55% 6%;
+    --secondary: 228 35% 18%;
+    --secondary-foreground: 225 100% 98%;
+    --muted: 228 35% 16%;
+    --muted-foreground: 223 25% 68%;
+    --accent: 225 100% 65%;
+    --accent-foreground: 224 55% 6%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 225 100% 98%;
+    --border: 228 35% 18%;
+    --input: 228 35% 18%;
+    --ring: 225 100% 65%;
+    --radius: 0.75rem;
+  }
+}
+
+body {
+  background-color: #070B18;
+  color: #F5F7FF;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+.glass-panel {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.25);
+}
+
+.glow-amber {
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.25);
+}
+
+.glow-rose {
+  box-shadow: 0 0 25px rgba(244, 63, 94, 0.25);
+}
