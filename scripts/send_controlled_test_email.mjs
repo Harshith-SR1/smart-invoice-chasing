@@ -64,25 +64,25 @@ async function runControlledDispatch() {
     const result = await resend.emails.send({
       from: fromEmail,
       to: [authorizedRecipient],
-      subject: 'Smart Invoice Chasing: Controlled Live Verification (EMAIL-002)',
+      subject: 'Smart Invoice Chasing: Production Webhook Verification (DEPLOY-003)',
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
-          <h2 style="color: #0f172a; margin-top: 0;">Smart Invoice Chasing — Verification Delivery</h2>
+          <h2 style="color: #0f172a; margin-top: 0;">Smart Invoice Chasing — Production Webhook Verification</h2>
           <p style="color: #334155; line-height: 1.6;">
-            This is an authorized, single controlled test delivery verifying the Resend email dispatch pipeline for <strong>Smart Invoice Chasing</strong>.
+            This is an authorized, single controlled test delivery verifying the Resend live webhook integration with <strong>https://smart-invoice-chasing.vercel.app/api/webhooks/resend</strong>.
           </p>
           <div style="background: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; margin: 20px 0; border-radius: 4px;">
-            <p style="margin: 0; color: #1e293b; font-size: 14px;"><strong>Task ID:</strong> EMAIL-002</p>
+            <p style="margin: 0; color: #1e293b; font-size: 14px;"><strong>Task ID:</strong> DEPLOY-003</p>
             <p style="margin: 4px 0 0; color: #1e293b; font-size: 14px;"><strong>Timestamp:</strong> ${dispatchTimestamp}</p>
             <p style="margin: 4px 0 0; color: #1e293b; font-size: 14px;"><strong>Sender Identity:</strong> ${fromEmail}</p>
             <p style="margin: 4px 0 0; color: #1e293b; font-size: 14px;"><strong>Recipient:</strong> ${authorizedRecipient}</p>
           </div>
           <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
-            This email was initiated under strict operator supervision. No real customer data or bulk messages were used.
+            This email was initiated under strict operator authorization. No customer data or bulk messages were used.
           </p>
         </div>
       `,
-      text: `Smart Invoice Chasing — Verification Delivery (EMAIL-002)\n\nThis is an authorized, single controlled test delivery verifying the Resend email dispatch pipeline.\n\nTask ID: EMAIL-002\nTimestamp: ${dispatchTimestamp}\nSender Identity: ${fromEmail}\nRecipient: ${authorizedRecipient}\n\nStrict operator supervision. No customer records contacted.`,
+      text: `Smart Invoice Chasing — Production Webhook Verification (DEPLOY-003)\n\nThis is an authorized, single controlled test delivery verifying the Resend live webhook pipeline.\n\nTask ID: DEPLOY-003\nTimestamp: ${dispatchTimestamp}\nSender Identity: ${fromEmail}\nRecipient: ${authorizedRecipient}\n\nStrict operator authorization. No customer records contacted.`,
     });
 
     if (result.error) {
@@ -103,7 +103,7 @@ async function runControlledDispatch() {
 
     // Write audit record to JSON artifact
     const auditRecord = {
-      task: 'EMAIL-002',
+      task: 'DEPLOY-003',
       dispatched_at: dispatchTimestamp,
       provider: 'Resend',
       provider_message_id: providerMessageId,
@@ -112,10 +112,10 @@ async function runControlledDispatch() {
       status: 'provider_accepted',
     };
     fs.writeFileSync(
-      path.join(process.cwd(), 'scripts', 'email_002_delivery_evidence.json'),
+      path.join(process.cwd(), 'scripts', 'deploy_003_delivery_evidence.json'),
       JSON.stringify(auditRecord, null, 2)
     );
-    console.log('Evidence saved to scripts/email_002_delivery_evidence.json');
+    console.log('Evidence saved to scripts/deploy_003_delivery_evidence.json');
   } catch (err) {
     console.error('❌ Dispatch failed with exception:', err.message);
     process.exit(1);
