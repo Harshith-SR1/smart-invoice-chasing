@@ -92,12 +92,22 @@ export async function POST(req: NextRequest) {
     .eq('provider_message_id', providerMessageId)
     .single();
 
+  // If the message does not exist in our database (e.g. Resend dashboard test webhook or external email),
+  // acknowledge receipt (HTTP 200) so provider knows signature verified, without throwing a NOT NULL error on workspace_id.
+  if (!message) {
+    return NextResponse.json({
+      ok: true,
+      tracked: false,
+      message: 'Webhook authenticated; provider message ID is not associated with an internal message row.',
+    });
+  }
+
   // ── 5. Idempotent insert of webhook event ──────────────────────────────────
   const { error: insertError } = await svc
     .from('message_webhook_events')
     .insert({
-      workspace_id: message?.workspace_id ?? null,
-      message_id: message?.id ?? null,
+      workspace_id: message.workspace_id,
+      message_id: message.id,
       provider_message_id: providerMessageId,
       event_type: eventType,
       // Store minimal useful fields — not the entire raw payload
