@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
     .from('messages')
     .select('id, workspace_id, invoice_id, delivery_status')
     .eq('provider_message_id', providerMessageId)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   // If the message does not exist in our database (e.g. Resend dashboard test webhook or external email),
   // acknowledge receipt (HTTP 200) so provider knows signature verified, without throwing a NOT NULL error on workspace_id.
@@ -117,33 +118,74 @@ export async function POST(req: NextRequest) {
   if (insertError) {
     if (insertError.code === '23505') {
       // Duplicate event — already processed
-      return NextResponse.json({ ok: true, duplicate: true });
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        tracked: true,
+        messageId: message.id,
+      });
     }
     console.error('[webhook] Failed to insert event:', insertError);
     return NextResponse.json({ error: 'Failed to record webhook event.' }, { status: 500 });
   }
 
   // ── 6. Advance message delivery state (never downgrade) ───────────────────
-  if (message) {
-    const newStatus = mapEventToStatus(eventType);
-    if (newStatus && shouldAdvanceState(message.delivery_status, newStatus)) {
-      const updateFields: Record<string, unknown> = { delivery_status: newStatus };
+  const newStatus = mapEventToStatus(eventType);
+  if (newStatus && shouldAdvanceState(message.delivery_status, newStatus)) {
+    const now = new Date().toISOString();
+    const updateFields: Record<string, unknown> = { delivery_status: newStatus };
 
-      if (newStatus === 'delivered') {
-        updateFields.delivered_at = new Date().toISOString();
-      } else if (newStatus === 'bounced' || newStatus === 'failed') {
-        updateFields.bounced_at = new Date().toISOString();
-        updateFields.failure_reason = extractBounceReason(data);
+    if (newStatus === 'delivered') {
+      updateFields.delivered_at = now;
+      if (message.invoice_id) {
+        await svc.from('collection_events').insert({
+          workspace_id: message.workspace_id,
+          invoice_id: message.invoice_id,
+          type: 'reminder_delivered',
+          title: 'Follow-up Email Delivered',
+          description: `Email confirmed delivered to recipient mailbox. Provider ref: ${providerMessageId}`,
+          badge: 'Delivered',
+          actor: 'system',
+          metadata: {
+            provider_message_id: providerMessageId,
+            message_id: message.id,
+            event_type: eventType,
+          },
+        });
       }
-
-      await svc
-        .from('messages')
-        .update(updateFields)
-        .eq('id', message.id);
+    } else if (newStatus === 'bounced' || newStatus === 'failed') {
+      updateFields.bounced_at = now;
+      updateFields.failure_reason = extractBounceReason(data);
+      if (message.invoice_id) {
+        await svc.from('collection_events').insert({
+          workspace_id: message.workspace_id,
+          invoice_id: message.invoice_id,
+          type: 'reminder_failed',
+          title: 'Follow-up Delivery Failed / Bounced',
+          description: `Email delivery failed: ${extractBounceReason(data)} (Provider ref: ${providerMessageId})`,
+          badge: 'Bounced',
+          actor: 'system',
+          metadata: {
+            provider_message_id: providerMessageId,
+            message_id: message.id,
+            failure_reason: extractBounceReason(data),
+          },
+        });
+      }
     }
+
+    await svc
+      .from('messages')
+      .update(updateFields)
+      .eq('id', message.id);
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    tracked: true,
+    messageId: message.id,
+    deliveryStatus: newStatus || message.delivery_status,
+  });
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
