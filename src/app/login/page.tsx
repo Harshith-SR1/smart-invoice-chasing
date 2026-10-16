@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Bot, ArrowRight, Eye, EyeOff, Lock, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { createClient } from '../../lib/supabase/client';
 import { useApp } from '../../context/AppContext';
+import { getAuthRedirectUrl } from '../../lib/authRedirect';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function LoginPage() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
   // Check if session exists or if error param exists on load
   useEffect(() => {
@@ -58,6 +60,7 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     setErrorMessage(null);
+    setUnconfirmedEmail(null);
 
     // Check if Supabase keys are placeholder
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -70,11 +73,11 @@ export default function LoginPage() {
     }
 
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectTo = getAuthRedirectUrl('/auth/callback');
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${origin}/auth/callback`,
+          redirectTo,
         },
       });
 
@@ -91,8 +94,10 @@ export default function LoginPage() {
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setUnconfirmedEmail(null);
 
-    if (!email || !password) {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
       setErrorMessage('Please enter your email and password.');
       return;
     }
@@ -101,23 +106,22 @@ export default function LoginPage() {
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: trimmedEmail,
         password,
       });
 
       if (error) {
-        // If Supabase project is not configured yet or user wants demo access
-        if (
-          (email === 'demo@smartchasing.com' || email.includes('@')) &&
-          (password === 'password123' || password.length >= 6)
-        ) {
-          showToast('Welcome to Smart Invoice Chasing Demo!', 'success');
-          setActiveScreen('dashboard');
-          router.push('/dashboard');
-          return;
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('email not confirmed')) {
+          setUnconfirmedEmail(trimmedEmail);
+          setErrorMessage('Your email address has not been confirmed yet. Please verify using the 6-digit code sent to your email.');
+        } else if (msg.includes('invalid login credentials') || msg.includes('invalid credentials')) {
+          setErrorMessage('Invalid email or password. Please verify your credentials.');
+        } else if (error.status === 429 || msg.includes('too many requests') || msg.includes('rate limit')) {
+          setErrorMessage('Too many sign-in attempts. Please wait 60 seconds before trying again.');
+        } else {
+          setErrorMessage(error.message || 'Incorrect email or password.');
         }
-
-        setErrorMessage('Incorrect email or password.');
         setIsEmailLoading(false);
         return;
       }
@@ -125,16 +129,24 @@ export default function LoginPage() {
       if (data.user && data.session) {
         showToast('Welcome back!', 'success');
         setActiveScreen('dashboard');
-        router.push('/dashboard');
+
+        // Check if workspace exists
+        const { data: workspaces } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('user_id', data.user.id)
+          .limit(1);
+
+        if (workspaces && workspaces.length > 0) {
+          router.push('/dashboard');
+        } else {
+          router.push('/setup');
+        }
       } else {
-        showToast('Logged in!', 'success');
-        setActiveScreen('dashboard');
-        router.push('/dashboard');
+        setErrorMessage('Authentication could not be established. Please try again.');
       }
     } catch (err: any) {
-      showToast('Welcome back!', 'success');
-      setActiveScreen('dashboard');
-      router.push('/dashboard');
+      setErrorMessage(err?.message || 'An unexpected error occurred during sign in. Please try again.');
     } finally {
       setIsEmailLoading(false);
     }
@@ -163,9 +175,23 @@ export default function LoginPage() {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
+          <div className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span>{errorMessage}</span>
+                {unconfirmedEmail && (
+                  <div className="mt-2.5 pt-2 border-t border-rose-500/20">
+                    <Link
+                      href={`/signup?verify=true&email=${encodeURIComponent(unconfirmedEmail)}`}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400 hover:text-emerald-300 underline"
+                    >
+                      Enter 6-digit verification code →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

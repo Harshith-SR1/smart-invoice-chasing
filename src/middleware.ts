@@ -44,6 +44,16 @@ export async function middleware(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     const pathname = request.nextUrl.pathname;
+    const searchParams = request.nextUrl.searchParams;
+
+    // If an OAuth provider or Supabase fallback redirects to / or /login with an auth code,
+    // forward to /auth/callback so the authorization code is exchanged for a session
+    if (searchParams.has('code') && (pathname === '/' || pathname === '/login')) {
+      const callbackUrl = request.nextUrl.clone();
+      callbackUrl.pathname = '/auth/callback';
+      return NextResponse.redirect(callbackUrl);
+    }
+
     const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/signup');
     const isPublicRoute =
       pathname === '/' ||

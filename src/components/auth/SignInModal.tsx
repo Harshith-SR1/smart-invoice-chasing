@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Bot, ArrowRight, Lock, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { createClient } from '../../lib/supabase/client';
+import { getAuthRedirectUrl } from '../../lib/authRedirect';
 
 export const SignInModal: React.FC = () => {
   const router = useRouter();
@@ -31,11 +32,11 @@ export const SignInModal: React.FC = () => {
     }
 
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectTo = getAuthRedirectUrl('/auth/callback');
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${origin}/auth/callback`,
+          redirectTo,
         },
       });
 
@@ -66,6 +67,11 @@ export const SignInModal: React.FC = () => {
       });
 
       if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (msg.includes('email not confirmed')) {
+          router.push(`/signup?verify=true&email=${encodeURIComponent(email.trim().toLowerCase())}`);
+          return;
+        }
         setErrorMessage(error.message || 'Incorrect email or password.');
         setIsLoading(false);
         return;
