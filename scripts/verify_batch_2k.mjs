@@ -229,14 +229,19 @@ assert.strictEqual(
 );
 pass('Response Validation: Application strictly validates rpcRes.success is boolean before returning or handling');
 
-// 3.2 Fails closed in production on missing RPC
+// 3.2 Fails closed in production on missing RPC (strictly development-only fallback)
 assert.strictEqual(
-  accountServiceCode.includes("if (isProduction && !isExplicitDevFallbackAllowed)") &&
+  accountServiceCode.includes("if (!isDevelopment)") &&
   accountServiceCode.includes("errorCode: 'atomic_rpc_required'"),
   true,
   'Production fails closed with atomic_rpc_required'
 );
-pass('Production Fail-Closed: Missing RPC strictly fails closed with atomic_rpc_required in production');
+assert.strictEqual(
+  accountServiceCode.includes('NEXT_PUBLIC_ALLOW_INSECURE_PAYMENT_FALLBACK'),
+  false,
+  'Public env var bypass is eliminated'
+);
+pass('Production Fail-Closed: Missing RPC strictly fails closed with atomic_rpc_required; no public env var bypass');
 
 
 // =============================================================

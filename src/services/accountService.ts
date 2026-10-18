@@ -849,15 +849,13 @@ export class AccountService {
         }
 
         // RPC returned an error:
-        // Strictly restrict fallback to confirmed missing-function error codes in pre-migration environments.
+        // Strictly restrict fallback to confirmed missing-function error codes in development-only environments.
+        // No public or production environment variable can enable non-atomic fallback in production.
         if (rpcErr.code === 'PGRST202' || rpcErr.code === '42883') {
-          const isProduction = process.env.NODE_ENV === 'production';
-          const isExplicitDevFallbackAllowed =
-            process.env.NEXT_PUBLIC_ALLOW_INSECURE_PAYMENT_FALLBACK === 'true' ||
-            process.env.NODE_ENV === 'development';
+          const isDevelopment = process.env.NODE_ENV === 'development';
 
-          // In production, strictly fail closed if atomic RPC is missing!
-          if (isProduction && !isExplicitDevFallbackAllowed) {
+          // In production and all non-development environments, strictly fail closed if atomic RPC is missing!
+          if (!isDevelopment) {
             return {
               success: false,
               errorCode: 'atomic_rpc_required',
