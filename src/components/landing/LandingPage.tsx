@@ -145,33 +145,33 @@ export const LandingPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentSlide]);
 
-  // Decision Engine Map with Accurate Claims
+  // Decision Engine Map with Refined Invariant Claims (INTRO-002)
   const decisionBranches = {
     promise: {
       chipLabel: '“I\'ll pay Friday.”',
       badge: 'PAYMENT PROMISE DETECTED (ILLUSTRATIVE)',
       badgeClass: 'bg-[#FFB84D]/15 text-[#FFB84D] border-[#FFB84D]/30',
-      action: 'Track Friday (12 Sep)',
+      action: 'Track Promised Date',
       steps: [
-        'AI classified: Explicit commitment to pay on 12 Sep (Illustrative)',
+        'AI classified: Explicit commitment to pay on promised date (Illustrative)',
         'Hold unnecessary reminders to preserve customer relationship',
-        'Review payment status on Friday',
+        'Review payment status on the promised date',
         'Recommend resuming follow-up if still unpaid',
       ],
-      aiState: 'Holding follow-ups until 12 Sep',
+      aiState: 'Holding follow-ups until promised date',
     },
     approval: {
       chipLabel: '“Waiting for approval.”',
       badge: 'APPROVAL DELAY DETECTED (ILLUSTRATIVE)',
       badgeClass: 'bg-[#8B7CFF]/15 text-[#8B7CFF] border-[#8B7CFF]/30',
-      action: 'Schedule Mid-Week Approval Follow-Up',
+      action: 'Recommend Mid-Week Approval Follow-Up',
       steps: [
         'AI classified: Internal accounts payable workflow bottleneck',
         'Recommend requesting manager or approver contact info',
-        'Suggest soft check-in reminder for Wednesday morning',
+        'Suggest soft check-in reminder for mid-week',
         'Keep invoice priority active in collection work queue',
       ],
-      aiState: 'Approver Inquiry Scheduled',
+      aiState: 'Recommended — awaiting review',
     },
     dispute: {
       chipLabel: '“Issue with the invoice.”',
@@ -180,7 +180,7 @@ export const LandingPage: React.FC = () => {
       action: 'Pause Chasing & Flag Human Review 🚨',
       steps: [
         'AI classified: Billing dispute or deliverable query',
-        'Immediately pause automated follow-ups to prevent frustration',
+        'Immediately pause collection follow-ups to preserve relationship',
         'Extract specific line item complaint from customer note',
         'Draft clarifying response for finance lead approval',
       ],
@@ -190,27 +190,27 @@ export const LandingPage: React.FC = () => {
       chipLabel: '“Payment sent.”',
       badge: 'PAYMENT CLAIM DETECTED (UNVERIFIED)',
       badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-      action: 'Flag for Bank Verification (Ledger Unchanged)',
+      action: 'Flag for Payment Verification',
       steps: [
-        'AI classified: Remittance claim by customer (Unverified)',
-        'Balance remains outstanding until confirmed in bank feed',
+        'AI classified: Remittance claim by customer (Unverified claim)',
+        'Keep the outstanding balance unchanged until payment is verified using available evidence',
         'Request transaction reference UTR / payment receipt',
-        'Stop collection only after bank credit is verified',
+        'Stop collection only after payment is verified',
       ],
-      aiState: 'Awaiting Bank UTR Verification',
+      aiState: 'Payment Claim Pending Verification',
     },
     no_response: {
       chipLabel: '“No response (7 days).”',
       badge: 'NON-RESPONSIVE ACCOUNT (ILLUSTRATIVE)',
       badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-      action: 'Escalate to Direct Phone Outreach',
+      action: 'Recommend Direct Phone Outreach',
       steps: [
         'AI classified: Email communication unanswered after multiple attempts',
         'Recommend escalating communication channel from Email to Phone',
         'Adjust tone to urgent but firm, relationship-sensitive inquiry',
         'Prepare phone script for operator review',
       ],
-      aiState: 'Direct Escalation Recommended',
+      aiState: 'Recommended — awaiting review',
     },
   };
 
@@ -299,7 +299,7 @@ export const LandingPage: React.FC = () => {
       </header>
 
       {/* MAIN SLIDE CONTAINER (100VH) */}
-      <main className="h-full w-full pt-20 pb-16 px-6 md:px-16 flex items-center justify-center relative z-10 overflow-x-hidden">
+      <main className="h-full w-full pt-20 pb-20 px-6 md:px-16 flex items-center justify-center relative z-10 overflow-x-hidden">
         <AnimatePresence mode="wait">
           {/* SLIDE 01: THE HOOK */}
           {currentSlide === 0 && (
@@ -376,7 +376,7 @@ export const LandingPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Target Card */}
+                  {/* Target Card — Matches Slide 2 Scenario Exactly */}
                   <div className="bg-[#070B18]/80 border border-white/5 rounded-xl p-4 mb-5 flex items-center justify-between">
                     <div>
                       <div className="text-xs text-[#9AA5C2] font-mono uppercase">Target Account (Illustrative)</div>
@@ -384,7 +384,7 @@ export const LandingPage: React.FC = () => {
                     </div>
                     <div className="text-right">
                       <div className="text-base font-extrabold text-[#FFB84D]">₹85,000</div>
-                      <div className="text-xs font-mono text-rose-400">83 DAYS OVERDUE</div>
+                      <div className="text-xs font-mono text-rose-400">43 DAYS PAST DUE</div>
                     </div>
                   </div>
 
@@ -407,7 +407,7 @@ export const LandingPage: React.FC = () => {
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 2 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Checking bank ledger — Commitment date passed without credit...</span>
+                      <span>Checking payment records — Commitment date passed without credit...</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 3 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
@@ -471,47 +471,47 @@ export const LandingPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Animated Timeline */}
+                {/* Animated Timeline with Improved Contrast for Inactive Steps */}
                 <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-left">
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 0 ? 'bg-white/5 border-white/20 opacity-100' : 'opacity-30 border-white/5'}`}>
-                    <div className="text-[10px] font-mono text-white/50">STEP 1</div>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 0 ? 'bg-white/10 border-white/30 opacity-100 shadow-sm' : 'opacity-80 bg-white/[0.04] border-white/15'}`}>
+                    <div className="text-[10px] font-mono text-slate-300">STEP 1</div>
                     <div className="text-xs font-bold text-white mt-1">Invoice Issued</div>
-                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">15 May</div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">15 May</div>
                   </div>
 
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 1 ? 'bg-white/5 border-white/20 opacity-100' : 'opacity-30 border-white/5'}`}>
-                    <div className="text-[10px] font-mono text-white/50">STEP 2</div>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 1 ? 'bg-white/10 border-white/30 opacity-100 shadow-sm' : 'opacity-80 bg-white/[0.04] border-white/15'}`}>
+                    <div className="text-[10px] font-mono text-slate-300">STEP 2</div>
                     <div className="text-xs font-bold text-white mt-1">Due Date</div>
-                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">30 May (Net 15)</div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">30 May (Net 15)</div>
                   </div>
 
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 2 ? 'bg-[#8B7CFF]/15 border-[#8B7CFF]/40 opacity-100' : 'opacity-30 border-white/5'}`}>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 2 ? 'bg-[#8B7CFF]/20 border-[#8B7CFF]/50 opacity-100 shadow-sm' : 'opacity-80 bg-[#8B7CFF]/10 border-[#8B7CFF]/25'}`}>
                     <div className="text-[10px] font-mono text-[#8B7CFF]">STEP 3</div>
                     <div className="text-xs font-bold text-white mt-1">Client Replied</div>
-                    <div className="text-[10px] text-[#8B7CFF] mt-0.5">“Pay next week”</div>
+                    <div className="text-[10px] text-[#A69BFF] mt-0.5">“Pay next week”</div>
                   </div>
 
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 3 ? 'bg-[#FFB84D]/15 border-[#FFB84D]/40 opacity-100' : 'opacity-30 border-white/5'}`}>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 3 ? 'bg-[#FFB84D]/20 border-[#FFB84D]/50 opacity-100 shadow-sm' : 'opacity-80 bg-[#FFB84D]/10 border-[#FFB84D]/25'}`}>
                     <div className="text-[10px] font-mono text-[#FFB84D]">STEP 4</div>
                     <div className="text-xs font-bold text-[#FFB84D] mt-1">Promise Missed</div>
-                    <div className="text-[10px] text-white/60 mt-0.5">7 June (Target)</div>
+                    <div className="text-[10px] text-slate-200 mt-0.5">7 June (Target)</div>
                   </div>
 
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 4 ? 'bg-white/5 border-white/20 opacity-100' : 'opacity-30 border-white/5'}`}>
-                    <div className="text-[10px] font-mono text-white/50">STEP 5</div>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 4 ? 'bg-white/10 border-white/30 opacity-100 shadow-sm' : 'opacity-80 bg-white/[0.04] border-white/15'}`}>
+                    <div className="text-[10px] font-mono text-slate-300">STEP 5</div>
                     <div className="text-xs font-bold text-white mt-1">Silent Inbox</div>
-                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">15 June (Follow-up)</div>
+                    <div className="text-[10px] text-slate-300 mt-0.5">15 June (Follow-up)</div>
                   </div>
 
-                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 5 ? 'bg-rose-500/20 border-rose-500/40 opacity-100' : 'opacity-30 border-white/5'}`}>
-                    <div className="text-[10px] font-mono text-rose-400">STATUS</div>
-                    <div className="text-xs font-extrabold text-rose-400 mt-1">43 Days Pass</div>
-                    <div className="text-[10px] text-rose-300 mt-0.5">12 July (Unresolved)</div>
+                  <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 5 ? 'bg-rose-500/25 border-rose-500/60 opacity-100 shadow-sm' : 'opacity-80 bg-rose-500/10 border-rose-500/30'}`}>
+                    <div className="text-[10px] font-mono text-rose-300 font-bold">STATUS</div>
+                    <div className="text-xs font-extrabold text-rose-400 mt-1">43 Days Past Due</div>
+                    <div className="text-[10px] text-rose-200 mt-0.5">12 July (Unresolved)</div>
                   </div>
                 </div>
 
                 <div className="mt-8 pt-6 border-t border-white/10 text-center">
-                  <p className="text-base text-[#9AA5C2] font-medium">
+                  <p className="text-base text-slate-300 font-medium">
                     “Most teams don't lose the invoice. <span className="text-white font-bold">They lose track of the conversation.”</span>
                   </p>
                 </div>
@@ -532,7 +532,7 @@ export const LandingPage: React.FC = () => {
               <div className="text-center space-y-3">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#8B7CFF]/15 border border-[#8B7CFF]/30 text-[#8B7CFF] text-xs font-mono">
                   <Bot className="w-3.5 h-3.5" />
-                  <span>PERSISTENT CONVERSATIONAL CONTEXT • DEMO</span>
+                  <span>PERSISTENT CONVERSATIONAL CONTEXT • DEMO SCENARIO</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   IT REMEMBERS <br />
@@ -542,19 +542,19 @@ export const LandingPage: React.FC = () => {
 
               {/* Split Screen Animation */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-                {/* Left: Customer Email Fragment */}
+                {/* Left: Customer Email Fragment — Clearly Labeled Separate Scenario INV-2089 */}
                 <div className="md:col-span-5 bg-[#111936]/90 border border-white/10 rounded-2xl p-6 shadow-xl relative">
-                  <div className="text-xs font-mono text-white/50 mb-3 uppercase tracking-wider flex items-center justify-between">
-                    <span>Customer Email Reply (Illustrative Example)</span>
+                  <div className="text-xs font-mono text-slate-300 mb-2 uppercase tracking-wider flex items-center justify-between">
+                    <span className="font-semibold text-white">Inbound Message (Scenario: INV-2089)</span>
                     <span className="text-[#9AA5C2]">23 Jun</span>
                   </div>
-                  <div className="text-[11px] font-mono text-[#9AA5C2] mb-2">Imported or logged message context:</div>
-                  <div className="bg-[#070B18] p-4 rounded-xl border border-white/5 text-sm text-[#9AA5C2] italic">
+                  <div className="text-[11px] font-mono text-slate-400 mb-2">Logged conversation context (manual entry or connected thread):</div>
+                  <div className="bg-[#070B18] p-4 rounded-xl border border-white/5 text-sm text-slate-300 italic">
                     “Hi Team, we're waiting for management approval on the Q2 audit. Should be completed and paid by Friday.”
                   </div>
-                  <div className="mt-4 flex items-center justify-between text-xs text-white/60">
-                    <span>From: Accounts @ Rahul Ent (Sample)</span>
-                    <span className="text-[#FFB84D] font-mono">₹1,20,000</span>
+                  <div className="mt-4 flex items-center justify-between text-xs text-slate-300">
+                    <span>Invoice INV-2089 (Audit Service) • Rahul Ent (Sample)</span>
+                    <span className="text-[#FFB84D] font-mono font-bold">₹1,20,000</span>
                   </div>
                 </div>
 
@@ -564,29 +564,29 @@ export const LandingPage: React.FC = () => {
                   <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-[#8B7CFF] to-transparent relative">
                     <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[#8B7CFF] animate-ping" />
                   </div>
-                  <div className="text-[10px] font-mono text-white/40 mt-1">CONTEXT</div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-1">CONTEXT</div>
                 </div>
 
                 {/* Right: AI Memory Card */}
                 <div className="md:col-span-5 bg-[#111936]/90 border border-[#8B7CFF]/30 rounded-2xl p-6 shadow-2xl relative">
                   <div className="text-xs font-mono text-[#8B7CFF] font-bold mb-3 uppercase tracking-wider flex items-center justify-between">
-                    <span>✦ AI COLLECTION MEMORY (Illustrative Preview)</span>
+                    <span>✦ AI COLLECTION MEMORY (Scenario: INV-2089)</span>
                     <span className="w-2 h-2 rounded-full bg-[#8B7CFF] animate-pulse" />
                   </div>
 
                   <div className="space-y-3 font-mono text-xs">
                     <div className="flex justify-between items-center bg-[#070B18] p-3 rounded-lg border border-white/5">
-                      <span className="text-[#9AA5C2]">Payment Promise:</span>
+                      <span className="text-slate-400">Payment Promise:</span>
                       <span className="text-[#FFB84D] font-bold">Friday (Target Date)</span>
                     </div>
 
                     <div className="flex justify-between items-center bg-[#070B18] p-3 rounded-lg border border-white/5">
-                      <span className="text-[#9AA5C2]">Promise Status:</span>
+                      <span className="text-slate-400">Promise Status:</span>
                       <span className="text-rose-400 font-bold">MISSED (Pending Verification)</span>
                     </div>
 
                     <div className="flex justify-between items-center bg-[#070B18] p-3 rounded-lg border border-white/5">
-                      <span className="text-[#9AA5C2]">Outstanding Balance:</span>
+                      <span className="text-slate-400">Outstanding Balance:</span>
                       <span className="text-white font-bold">₹1,20,000 (Ledger Unchanged)</span>
                     </div>
                   </div>
@@ -635,7 +635,7 @@ export const LandingPage: React.FC = () => {
                       className={`px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none ${
                         isSelected
                           ? 'bg-[#4F7CFF] border-[#4F7CFF] text-white shadow-lg shadow-[#4F7CFF]/30 scale-105'
-                          : 'bg-[#111936]/80 border-white/10 text-[#9AA5C2] hover:bg-white/5 hover:text-white'
+                          : 'bg-[#111936]/80 border-white/10 text-slate-300 hover:bg-white/5 hover:text-white'
                       }`}
                     >
                       {branch.chipLabel}
@@ -648,31 +648,31 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#111936]/90 border border-white/10 rounded-2xl p-6 max-w-4xl mx-auto shadow-2xl text-left backdrop-blur-xl grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
                 {/* Left: Input Understanding */}
                 <div className="md:col-span-5 space-y-4">
-                  <div className="text-[10px] font-mono text-white/40 uppercase">AI INTERPRETATION</div>
+                  <div className="text-[10px] font-mono text-slate-400 uppercase">AI INTERPRETATION</div>
 
                   <div className={`inline-block px-3 py-1 rounded-lg border text-xs font-bold font-mono ${currentBranch.badgeClass}`}>
                     {currentBranch.badge}
                   </div>
 
                   <div>
-                    <div className="text-xs text-[#9AA5C2]">Determined Action:</div>
+                    <div className="text-xs text-slate-400">Determined Action:</div>
                     <div className="text-lg font-bold text-white mt-1">{currentBranch.action}</div>
                   </div>
 
-                  <div className="p-3 bg-[#070B18] rounded-xl border border-white/5 text-xs text-white/70">
+                  <div className="p-3 bg-[#070B18] rounded-xl border border-white/5 text-xs text-slate-300">
                     <span className="text-[#4F7CFF] font-bold">Status:</span> {currentBranch.aiState}
                   </div>
                 </div>
 
                 {/* Right: Execution Steps */}
                 <div className="md:col-span-7 bg-[#070B18] p-5 rounded-xl border border-white/5 space-y-3">
-                  <div className="text-[10px] font-mono text-[#9AA5C2] uppercase">REASONING PIPELINE</div>
+                  <div className="text-[10px] font-mono text-slate-400 uppercase">REASONING PIPELINE</div>
                   {currentBranch.steps.map((step, idx) => (
                     <div key={idx} className="flex items-start gap-3 text-xs">
                       <div className="w-5 h-5 rounded-full bg-[#4F7CFF]/20 text-[#4F7CFF] flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
                         0{idx + 1}
                       </div>
-                      <span className="text-white/80">{step}</span>
+                      <span className="text-slate-200">{step}</span>
                     </div>
                   ))}
                 </div>
@@ -708,7 +708,7 @@ export const LandingPage: React.FC = () => {
                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span className="text-sm font-bold text-white font-mono">✦ COLLECTION WORKFLOW PREVIEW</span>
                   </div>
-                  <span className="text-xs font-mono text-[#9AA5C2]">ACTIVE PIPELINE: 12 ACCOUNTS (ILLUSTRATIVE DEMO)</span>
+                  <span className="text-xs font-mono text-slate-300">ACTIVE PIPELINE: 12 ACCOUNTS (ILLUSTRATIVE DEMO)</span>
                 </div>
 
                 {/* Streamed Work Queue Items */}
@@ -716,7 +716,7 @@ export const LandingPage: React.FC = () => {
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
                       <div className="text-white font-bold text-sm">Rahul Enterprises (Sample)</div>
-                      <div className="text-[#9AA5C2] text-[11px]">Payment promise missed (Target 30 Jun)</div>
+                      <div className="text-slate-300 text-[11px]">Payment promise missed (Target: promised date)</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[#FFB84D] font-bold text-sm">₹85,000</div>
@@ -727,7 +727,7 @@ export const LandingPage: React.FC = () => {
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
                       <div className="text-white font-bold text-sm">ABC Pvt Ltd (Sample)</div>
-                      <div className="text-[#9AA5C2] text-[11px]">91 days past due • 2 broken promises</div>
+                      <div className="text-slate-300 text-[11px]">91 days past due • 2 broken promises</div>
                     </div>
                     <div className="text-right">
                       <div className="text-rose-400 font-bold text-sm">₹1,80,000</div>
@@ -738,18 +738,18 @@ export const LandingPage: React.FC = () => {
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
                       <div className="text-white font-bold text-sm">XYZ Agency (Sample)</div>
-                      <div className="text-[#9AA5C2] text-[11px]">Customer email reply received 10m ago</div>
+                      <div className="text-slate-300 text-[11px]">Customer email reply received 10m ago</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[#8B7CFF] font-bold text-sm">₹92,000</div>
-                      <div className="text-[#8B7CFF] text-[11px] font-sans">→ Response review & sentiment demo</div>
+                      <div className="text-[#8B7CFF] text-[11px] font-sans">→ Customer reply received — review recommended</div>
                     </div>
                   </div>
 
                   <div className="p-4 bg-emerald-950/20 rounded-xl border border-emerald-500/20 flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <div className="text-white font-bold text-sm">Kumar Studios (Sample)</div>
-                      <div className="text-emerald-400/70 text-[11px]">Payment confirmed via bank ledger • Invoice settled</div>
+                      <div className="text-emerald-400/90 text-[11px]">Payment verified • Invoice settled</div>
                     </div>
                     <div className="text-right">
                       <div className="text-emerald-400 font-bold text-sm">₹42,000</div>
@@ -758,7 +758,7 @@ export const LandingPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-2 text-[10px] text-[#9AA5C2] font-mono text-center">
+                <div className="pt-2 text-[11px] text-slate-300 font-mono text-center">
                   * Sample accounts and workflow actions shown for illustrative demonstration.
                 </div>
               </div>
@@ -786,46 +786,46 @@ export const LandingPage: React.FC = () => {
                 </h2>
               </div>
 
-              {/* Recovery Stories */}
+              {/* Recovery Stories with Consistent Amounts & Illustrative Labels */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-left">
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 01</div>
+                  <div className="text-xs font-mono text-slate-300">SCENARIO 01</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹1,20,000</div>
-                  <div className="text-xs text-[#9AA5C2] mt-2">Reminder #2 → Verified bank credit</div>
-                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
-                    PAID IN FULL ✓
+                  <div className="text-xs text-slate-300 mt-2">Reminder #2 → Payment verified</div>
+                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block border border-emerald-500/30">
+                    ILLUSTRATIVE: PAID IN FULL ✓
                   </div>
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 02</div>
+                  <div className="text-xs font-mono text-slate-300">SCENARIO 02</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹85,000</div>
-                  <div className="text-xs text-[#9AA5C2] mt-2">Missed promise → Follow-up</div>
-                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
-                    PAID IN FULL ✓
+                  <div className="text-xs text-slate-300 mt-2">Missed promise → Follow-up</div>
+                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block border border-emerald-500/30">
+                    ILLUSTRATIVE: PAID IN FULL ✓
                   </div>
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 03</div>
+                  <div className="text-xs font-mono text-slate-300">SCENARIO 03</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹2,10,000</div>
-                  <div className="text-xs text-[#9AA5C2] mt-2">Human Escalation script</div>
-                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
-                    PAID IN FULL ✓
+                  <div className="text-xs text-slate-300 mt-2">Human Escalation script</div>
+                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block border border-emerald-500/30">
+                    ILLUSTRATIVE: PAID IN FULL ✓
                   </div>
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 04</div>
+                  <div className="text-xs font-mono text-slate-300">SCENARIO 04</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹65,000</div>
-                  <div className="text-xs text-[#9AA5C2] mt-2">Follow-up #3 → Payment link</div>
-                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
-                    PAID IN FULL ✓
+                  <div className="text-xs text-slate-300 mt-2">Follow-up #3 → Payment link</div>
+                  <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block border border-emerald-500/30">
+                    ILLUSTRATIVE: PAID IN FULL ✓
                   </div>
                 </div>
               </div>
 
-              {/* Total Recovered Summary Banner */}
+              {/* Total Recovered Summary Banner — Reconciled Cohort Dataset */}
               <div className="bg-gradient-to-r from-[#111936] via-[#16224c] to-[#111936] border border-emerald-500/30 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-6 max-w-4xl mx-auto shadow-2xl">
                 <div>
                   <div className="text-xs font-mono text-emerald-400 font-bold uppercase">RECOVERED (SAMPLE COHORT)</div>
@@ -833,18 +833,18 @@ export const LandingPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-6 text-left">
                   <div>
-                    <div className="text-xs text-[#9AA5C2]">Cohort Recovery Rate</div>
+                    <div className="text-xs text-slate-300">Cohort Recovery Rate</div>
                     <div className="text-lg font-bold text-emerald-400">84.2%</div>
                   </div>
                   <div className="w-px h-8 bg-white/10" />
                   <div>
-                    <div className="text-xs text-[#9AA5C2]">Attention Needed</div>
+                    <div className="text-xs text-slate-300">Attention Needed</div>
                     <div className="text-lg font-bold text-[#FFB84D]">₹90,000</div>
                   </div>
                 </div>
               </div>
 
-              <div className="text-[11px] text-[#9AA5C2] font-mono">
+              <div className="text-[11px] text-slate-400 font-mono">
                 * Figures illustrate a sample 90-day recovery cohort (₹4.80L recovered / ₹5.70L cohort total). Not a guarantee of financial outcomes.
               </div>
             </motion.div>
@@ -871,14 +871,14 @@ export const LandingPage: React.FC = () => {
                     MONTHS OF UNPAID INVOICES?
                   </span>
                 </h2>
-                <p className="text-lg text-[#9AA5C2] max-w-2xl mx-auto">
+                <p className="text-lg text-slate-300 max-w-2xl mx-auto">
                   Don't start from zero. Upload your spreadsheet to validate invoices, detect duplicates, and organize receivables into actionable collection queues.
                 </p>
               </div>
 
-              {/* Import & AI Analysis Animation Card */}
+              {/* Import & AI Analysis Animation Card — Final Step "REVIEW & CONFIRM" */}
               <div className="bg-[#111936]/90 border border-white/10 rounded-2xl p-8 max-w-3xl mx-auto shadow-2xl space-y-6 backdrop-blur-xl">
-                <div className="flex items-center justify-center gap-4 text-xs font-mono text-[#9AA5C2]">
+                <div className="flex items-center justify-center gap-4 text-xs font-mono text-slate-300">
                   <span className="flex items-center gap-1.5 text-white">
                     <FileSpreadsheet className="w-4 h-4 text-[#4F7CFF]" /> CSV / EXCEL
                   </span>
@@ -888,32 +888,32 @@ export const LandingPage: React.FC = () => {
                   </span>
                   <span>→</span>
                   <span className="flex items-center gap-1.5 text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4" /> RECOVERY READY
+                    <CheckCircle2 className="w-4 h-4" /> REVIEW & CONFIRM
                   </span>
                 </div>
 
-                <div className="text-[10px] font-mono text-white/40 uppercase tracking-wider text-center">
+                <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider text-center">
                   SAMPLE WORKSPACE IMPORT PREVIEW (ILLUSTRATIVE)
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-left font-mono text-xs">
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
-                    <div className="text-[#9AA5C2]">Overdue Invoices</div>
+                    <div className="text-slate-300">Overdue Invoices</div>
                     <div className="text-lg font-bold text-white mt-1">43</div>
                     <div className="text-[9px] text-[#4F7CFF] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
-                    <div className="text-[#9AA5C2]">Follow-ups Needed</div>
+                    <div className="text-slate-300">Follow-ups Needed</div>
                     <div className="text-lg font-bold text-[#8B7CFF] mt-1">18</div>
                     <div className="text-[9px] text-[#8B7CFF] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
-                    <div className="text-[#9AA5C2]">Missed Promises</div>
+                    <div className="text-slate-300">Missed Promises</div>
                     <div className="text-lg font-bold text-[#FFB84D] mt-1">11</div>
                     <div className="text-[9px] text-[#FFB84D] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
-                    <div className="text-[#9AA5C2]">Priority Receivables</div>
+                    <div className="text-slate-300">Priority Receivables</div>
                     <div className="text-lg font-bold text-emerald-400 mt-1">₹6.2L</div>
                     <div className="text-[9px] text-emerald-400 mt-0.5">Sample total</div>
                   </div>
@@ -928,7 +928,7 @@ export const LandingPage: React.FC = () => {
                     <ArrowRight className="w-5 h-5" />
                   </button>
 
-                  <div className="text-xs text-[#9AA5C2]">
+                  <div className="text-xs text-slate-300">
                     Already have an account?{' '}
                     <Link href="/login" className="text-[#4F7CFF] hover:underline font-semibold focus-visible:ring-1 focus-visible:ring-[#4F7CFF] rounded outline-none">
                       Sign in here
@@ -943,7 +943,7 @@ export const LandingPage: React.FC = () => {
 
       {/* MINIMAL BOTTOM CONTROLS & PROGRESS */}
       <footer className="fixed bottom-0 left-0 right-0 z-50 h-16 px-6 md:px-8 flex items-center justify-between border-t border-white/5 bg-[#070B18]/80 backdrop-blur-md">
-        <div className="text-xs text-[#9AA5C2] font-mono flex items-center gap-3">
+        <div className="text-xs text-slate-300 font-mono flex items-center gap-3">
           <span className="hidden sm:inline">Use mouse wheel, keyboard arrows, or controls to navigate story</span>
           <span className="sm:hidden">Swipe to navigate story</span>
         </div>
@@ -961,7 +961,7 @@ export const LandingPage: React.FC = () => {
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <span className="text-xs font-mono text-white/50 px-1">
+          <span className="text-xs font-mono text-slate-300 px-1">
             0{currentSlide + 1} / 07
           </span>
 
