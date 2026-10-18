@@ -81,6 +81,118 @@ const getLocalDateString = (d: Date = new Date()): string => {
   return `${year}-${month}-${day}`;
 };
 
+export function buildRecoveryReportSummary(
+  invoices: Invoice[],
+  promises: PaymentPromise[],
+  currency: string = 'INR',
+  isRealWorkspace: boolean = false
+): RecoveryReportSummary {
+  const now = new Date();
+  const monthName = now.toLocaleString('en-US', { month: 'long' });
+  const yearNum = now.getFullYear();
+  const isINR = currency.includes('INR') || currency === 'INR';
+  const currencySymbol = isINR ? '₹' : '$';
+
+  if (invoices.length === 0) {
+    return {
+      month: monthName,
+      year: yearNum,
+      totalRecovered: 0,
+      totalOutstanding: 0,
+      chasedInvoicesCount: 0,
+      remindersSent: 0,
+      repliesReceived: 0,
+      promisesDetected: 0,
+      promisesFulfilled: 0,
+      escalatedCount: 0,
+      unrecoveredAccounts: [],
+      aiExecutiveSummary: isRealWorkspace
+        ? 'No invoice records found in this workspace. Import invoices or connect your accounting integration to generate recovery intelligence.'
+        : 'Demo Workspace: No invoices loaded.',
+    };
+  }
+
+  // 1. Recovered Revenue: Strictly verified payments
+  const totalRecovered = invoices.reduce((sum, inv) => {
+    const paid = inv.paidAmount !== undefined ? inv.paidAmount : (inv.status === 'paid' ? inv.amount : 0);
+    return sum + paid;
+  }, 0);
+
+  // 2. Outstanding Balance: Authoritative balance across unpaid/partially paid invoices
+  const totalOutstanding = invoices
+    .filter((inv) => inv.status !== 'paid')
+    .reduce((sum, inv) => {
+      const out = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+      return sum + out;
+    }, 0);
+
+  // 3. Reminders Dispatched: Authoritative count from communication records
+  const remindersSent = invoices.reduce((sum, inv) => sum + (inv.remindersSent || 0), 0);
+
+  // 4. Customer Replies
+  const repliesReceived = invoices.reduce((sum, inv) => sum + (inv.customerRepliesCount || 0), 0);
+
+  // 5. Promises Detected & Fulfilled
+  const promisesDetected = promises.length;
+  const promisesFulfilled = promises.filter(
+    (p) => p.status === 'FULFILLED' || p.status === 'fulfilled'
+  ).length;
+
+  // 6. Chased Invoices Count
+  const chasedInvoicesCount = invoices.filter(
+    (inv) => (inv.remindersSent || 0) > 0 || inv.status === 'chasing' || inv.status === 'escalated' || inv.status === 'promised'
+  ).length;
+
+  // 7. Human Escalations: explicitly escalated or >= 5 reminders
+  const escalatedCount = invoices.filter(
+    (inv) => inv.status === 'escalated' || (inv.remindersSent || 0) >= 5
+  ).length;
+
+  // 8. Unrecovered Accounts: unpaid accounts with repeated follow-ups or escalation
+  const unrecoveredAccounts = invoices
+    .filter(
+      (inv) => inv.status !== 'paid' && (inv.outstandingAmount || inv.amount) > 0 && ((inv.remindersSent || 0) >= 3 || inv.status === 'escalated' || inv.status === 'overdue')
+    )
+    .map((inv) => {
+      const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+      let rec = 'Formal Notice & Phone Outreach';
+      if (inv.status === 'escalated' || (inv.remindersSent || 0) >= 5) {
+        rec = 'Direct Founder Call / Legal Escalation';
+      } else if (inv.daysOverdue > 60) {
+        rec = 'Consolidated Statement Demand';
+      }
+
+      return {
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        customerName: inv.customerName,
+        amount: outstanding,
+        remindersCount: inv.remindersSent || 0,
+        daysOverdue: inv.daysOverdue || 0,
+        lastResponse: inv.lastCustomerReply || 'No customer response received yet',
+        recommendation: rec,
+      };
+    });
+
+  // 9. AI Executive Summary derived strictly from evidence
+  const aiExecutiveSummary = `In ${monthName} ${yearNum}, Smart Invoice Chasing tracked ${currencySymbol}${totalRecovered.toLocaleString()} in verified recovered revenue across ${promisesFulfilled} fulfilled payment commitment(s). ${escalatedCount} account(s) have been flagged for human escalation with ${currencySymbol}${totalOutstanding.toLocaleString()} currently outstanding across ${invoices.length} managed invoice(s).`;
+
+  return {
+    month: monthName,
+    year: yearNum,
+    totalRecovered,
+    totalOutstanding,
+    chasedInvoicesCount,
+    remindersSent,
+    repliesReceived,
+    promisesDetected,
+    promisesFulfilled,
+    escalatedCount,
+    unrecoveredAccounts,
+    aiExecutiveSummary,
+  };
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
@@ -92,7 +204,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [promises, setPromises] = useState<PaymentPromise[]>(initialPaymentPromises);
   const [automationRules, setAutomationRules] = useState<AutomationRules>(defaultAutomationRules);
-  const [reportSummary, setReportSummary] = useState<RecoveryReportSummary>(initialReportSummary);
+  
+  const isRealWorkspace = Boolean(user && isUuid(workspace.id) && workspace.id !== 'ws-default');
+
+  // Authoritative Derived Recovery Report Summary (REP-001)
+  const reportSummary: RecoveryReportSummary = useMemo(() => {
+    if (!isRealWorkspace && invoices === initialInvoices) {
+      return initialReportSummary;
+    }
+    return buildRecoveryReportSummary(invoices, promises, workspace.currency, isRealWorkspace);
+  }, [invoices, promises, workspace.currency, isRealWorkspace]);
   
   // Stored state for manual decision overrides (e.g. dismissed or approved)
   const [decisionOverrides, setDecisionOverrides] = useState<Record<string, { status: AiDecision['status']; executedAt?: string }>>({});
@@ -140,14 +261,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const invs = await accountService.fetchInvoices(targetWsId);
         if (invs) {
           setInvoices(invs);
-          const verifiedRecovered = invs.reduce((sum, i) => sum + (i.paidAmount || (i.status === 'paid' ? i.amount : 0)), 0);
-          const totalOut = invs.reduce((sum, i) => sum + (i.outstandingAmount !== undefined ? i.outstandingAmount : (i.status === 'paid' ? 0 : i.amount)), 0);
-          setReportSummary((r) => ({
-            ...r,
-            totalRecovered: verifiedRecovered,
-            totalOutstanding: totalOut,
-            chasedInvoicesCount: invs.filter((i) => i.status !== 'paid').length,
-          }));
         }
 
         const custs = await accountService.fetchCustomers(targetWsId);
@@ -477,16 +590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setCustomers(updatedCustomers);
 
-      // Re-calculate Financial Report Summary
-      const verifiedRecovered = combined.reduce((sum, i) => sum + (i.paidAmount || (i.status === 'paid' ? i.amount : 0)), 0);
-      const totalOut = combined.reduce((sum, i) => sum + (i.outstandingAmount !== undefined ? i.outstandingAmount : (i.status === 'paid' ? 0 : i.amount)), 0);
-
-      setReportSummary((r) => ({
-        ...r,
-        totalRecovered: verifiedRecovered,
-        totalOutstanding: totalOut,
-        chasedInvoicesCount: combined.filter((i) => i.status !== 'paid').length,
-      }));
+      // Invoices and customers state updated; reportSummary automatically re-derives via useMemo
 
       accountService.importInvoices(workspace.id, combined);
       accountService.upsertCustomers(workspace.id, updatedCustomers);
@@ -639,21 +743,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // Update Financial Report Summary: only increment if an actual promise was satisfied, and prevent exceeding detected promises
-    setReportSummary((prev) => {
-      const updatedFulfilled = prev.promisesFulfilled + newlyFulfilledPromisesCount;
-      const safeFulfilled = prev.promisesDetected > 0
-        ? Math.min(prev.promisesDetected, updatedFulfilled)
-        : updatedFulfilled;
-      return {
-        ...prev,
-        totalRecovered: prev.totalRecovered + recordedAmt,
-        totalOutstanding: Math.max(0, prev.totalOutstanding - recordedAmt),
-        promisesFulfilled: safeFulfilled,
-      };
-    });
+    // Financial Report Summary is automatically derived via useMemo from invoices and promises (REP-001)
 
-    accountService.markInvoicePaid(invoiceId, recordedAmt);
     showToast(
       isFullySettled
         ? `Payment verified in full! Collection stopped.`
@@ -666,73 +757,127 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     handleRecordPayment(invoiceId, paidAmount || 0, !paidAmount);
   };
 
-  // Payment Claim by Customer (Unverified)
-  const handleClaimPayment = (invoiceId: string, claimedAmount: number, note?: string) => {
+  // Payment Claim by Customer (Unverified) (CLM-001)
+  const handleClaimPayment = async (invoiceId: string, claimedAmount: number, note?: string) => {
+    if (claimedAmount <= 0) {
+      showToast('Claimed amount must be greater than zero.', 'error');
+      return;
+    }
+
+    const inv = invoices.find((i) => i.id === invoiceId);
+    if (!inv) return;
+
+    const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+    if (claimedAmount > outstanding) {
+      showToast(`Claimed amount cannot exceed outstanding balance of ${inv.currency} ${outstanding.toLocaleString()}`, 'error');
+      return;
+    }
+
+    const claimNote = note || `Customer reported payment transfer of ${inv.currency} ${claimedAmount.toLocaleString()}`;
+
+    // 1. Authenticated Persistence
+    if (isUuid(workspace.id) && workspace.id !== 'ws-default') {
+      const res = await accountService.recordPaymentClaim(workspace.id, invoiceId, claimedAmount, claimNote);
+      if (!res.success) {
+        showToast(res.error || 'Failed to persist customer payment claim.', 'error');
+        return;
+      }
+    }
+
+    // 2. State update: Leaves financial balances completely untouched!
     setInvoices((prev) =>
-      prev.map((inv) => {
-        if (inv.id === invoiceId) {
+      prev.map((i) => {
+        if (i.id === invoiceId) {
           return {
-            ...inv,
+            ...i,
             paymentClaimStatus: 'CLAIMED',
-            paymentClaimNote: note || `Customer claimed transfer of ${inv.currency} ${claimedAmount.toLocaleString()}`,
+            paymentClaimNote: claimNote,
             paymentClaimedAt: new Date().toISOString().split('T')[0],
             nextAction: 'Verify payment receipt against bank account',
             timeline: [
               {
                 id: `evt-claim-${Date.now()}`,
-                invoiceId: inv.id,
+                invoiceId: i.id,
                 timestamp: new Date().toISOString(),
                 type: 'payment_claimed',
                 title: 'Payment Claimed by Customer ⚠️',
-                description: note || `Customer stated payment of ${inv.currency} ${claimedAmount.toLocaleString()} has been released. Verification required.`,
+                description: claimNote,
                 badge: 'PAYMENT CLAIMED (UNVERIFIED)',
                 actor: 'customer',
               },
-              ...inv.timeline,
+              ...i.timeline,
             ],
           };
         }
-        return inv;
+        return i;
       })
     );
+
     showToast('Customer payment claim logged. Flagged for verification.', 'info');
   };
 
-  // Verification of Claimed Payment
-  const handleVerifyClaimedPayment = (invoiceId: string, isVerified: boolean) => {
+  // Verification or Rejection of Claimed Payment (CLM-001, CLM-002)
+  const handleVerifyClaimedPayment = async (invoiceId: string, isVerified: boolean) => {
+    const inv = invoices.find((i) => i.id === invoiceId);
+    if (!inv) return;
+
+    // Defect CLM-002: Reject verification when no pending claim exists!
+    if (inv.paymentClaimStatus !== 'CLAIMED') {
+      showToast('No pending payment claim found for this invoice. Verification cannot proceed without an active claim.', 'error');
+      return;
+    }
+
+    if (isUuid(workspace.id) && workspace.id !== 'ws-default') {
+      const res = await accountService.verifyPaymentClaim(workspace.id, invoiceId, isVerified);
+      if (!res.success) {
+        showToast(res.error || 'Failed to verify payment claim in database.', 'error');
+        return;
+      }
+      if (isVerified && res.data) {
+        const claimAmount =
+          res.data.claimAmount !== undefined ? res.data.claimAmount : res.data.amountPaid - (inv.paidAmount || 0);
+        handleRecordPayment(
+          invoiceId,
+          claimAmount > 0 ? claimAmount : inv.outstandingAmount || inv.amount,
+          res.data.status === 'paid'
+        );
+        return;
+      }
+    }
+
     if (isVerified) {
       handleRecordPayment(invoiceId, 0, true);
     } else {
       setInvoices((prev) =>
-        prev.map((inv) => {
-          if (inv.id === invoiceId) {
+        prev.map((i) => {
+          if (i.id === invoiceId) {
             return {
-              ...inv,
+              ...i,
               paymentClaimStatus: 'REJECTED',
-              nextAction: 'Payment unconfirmed in bank. Resume collection.',
+              nextAction: 'Payment claim unconfirmed in bank. Follow-up resumed.',
               timeline: [
                 {
                   id: `evt-rej-${Date.now()}`,
-                  invoiceId: inv.id,
+                  invoiceId: i.id,
                   timestamp: new Date().toISOString(),
                   type: 'escalation_triggered',
                   title: 'Payment Claim Rejected ❌',
-                  description: 'Bank records do not show credited funds. Follow-up required.',
+                  description: 'Payment claim could not be verified in bank ledger. Collection resumed.',
                   badge: 'CLAIM REJECTED',
                   actor: 'user',
                 },
-                ...inv.timeline,
+                ...i.timeline,
               ],
             };
           }
-          return inv;
+          return i;
         })
       );
       showToast('Payment claim unverified. Collection resumed.', 'error');
     }
   };
 
-  // AI Decision Lifecycle Handlers
+  // AI Decision Lifecycle Handlers (DEC-001, DEC-002)
   const handleApproveDecision = async (decisionId: string) => {
     const targetDec = decisions.find((d) => d.id === decisionId || d.invoiceId === decisionId);
     if (!targetDec) return;
@@ -779,27 +924,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const targetInvoice = invoices.find((i) => i.id === targetDec.invoiceId);
+    if (!targetInvoice) return;
+
+    const isPaid = targetInvoice.status === 'paid' || (targetInvoice.outstandingAmount !== undefined ? targetInvoice.outstandingAmount <= 0 : false);
+    const isDisputed = targetInvoice.status === 'disputed';
+    const isHeld = (targetInvoice.status as string) === 'held' || (targetInvoice.status as string) === 'on_hold';
+    const hasClaimPending = targetInvoice.paymentClaimStatus === 'CLAIMED';
+    const isCustomerContact = targetDec.action === 'FOLLOW_UP' || targetDec.action === 'NUDGE' || targetDec.action === 'ESCALATE';
+
+    // Invariant: Unverified payment claim blocks customer contact decisions (DEC-002)
+    if (hasClaimPending && isCustomerContact) {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} has an unverified payment claim awaiting verification. Customer-contact action "${targetDec.action}" is blocked.`, 'error');
+      return;
+    }
+
+    // Invariant: Settled invoices cannot execute automated chasing
+    if (isPaid && targetDec.action !== 'STOP') {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} is already settled. Chasing action cannot be executed.`, 'error');
+      return;
+    }
+
+    // Invariant: Disputed invoices cannot execute automatic contact
+    if (isDisputed && isCustomerContact) {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} is disputed. Reminders are blocked until dispute is resolved.`, 'error');
+      return;
+    }
+
+    // Invariant: Held invoices cannot execute automated outreach
+    if (isHeld && isCustomerContact) {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} is currently on hold. Customer-contact actions are blocked.`, 'error');
+      return;
+    }
+
     // 1. Preview / Demo Mode
     if (workspace.id === 'ws-default' || !isUuid(workspace.id)) {
+      const nowStr = new Date().toISOString();
+      const todayStr = nowStr.split('T')[0];
+
+      let newStatus = targetInvoice.status;
+      let newNextAction = targetInvoice.nextAction;
+      let eventTitle = `AI Action Executed: ${targetDec.action}`;
+      let eventBadge = `${targetDec.action}`;
+
+      if (targetDec.action === 'STOP') {
+        newNextAction = 'Chasing stopped. Account settled.';
+        eventBadge = 'STOPPED';
+      } else if (targetDec.action === 'ESCALATE') {
+        newStatus = 'escalated';
+        newNextAction = 'Escalated to human review / direct phone call';
+        eventTitle = 'AI Decision Executed: Escalated to Human Review';
+        eventBadge = 'ESCALATED';
+      } else if (targetDec.action === 'FOLLOW_UP' || targetDec.action === 'NUDGE') {
+        newStatus = 'chasing';
+        newNextAction = 'Awaiting customer response / payment promise';
+        eventBadge = 'AI Chasing';
+      }
+
       setInvoices((prev) =>
         prev.map((inv) => {
           if (inv.id === targetDec.invoiceId) {
-            const newStatus = targetDec.action === 'ESCALATE' ? 'escalated' : targetDec.action === 'STOP' ? 'paid' : 'chasing';
             return {
               ...inv,
-              status: newStatus as any,
+              status: newStatus,
               remindersSent: inv.remindersSent + (targetDec.action === 'FOLLOW_UP' || targetDec.action === 'NUDGE' ? 1 : 0),
-              lastContactDate: new Date().toISOString().split('T')[0],
-              nextAction: `Executed: ${targetDec.action} (${targetDec.recommendedTiming})`,
+              lastContactDate: todayStr,
+              nextAction: newNextAction,
               timeline: [
                 {
                   id: `evt-dec-exec-${Date.now()}`,
                   invoiceId: inv.id,
-                  timestamp: new Date().toISOString(),
+                  timestamp: nowStr,
                   type: 'decision_executed',
-                  title: `AI Action Executed: ${targetDec.action}`,
-                  description: targetDec.suggestedMessage.body || targetDec.reason,
-                  badge: `${targetDec.action} via ${targetDec.recommendedChannel}`,
+                  title: eventTitle,
+                  description: targetDec.suggestedMessage?.body || targetDec.reason,
+                  badge: eventBadge,
                   actor: 'ai',
                 },
                 ...inv.timeline,
@@ -812,9 +1011,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setDecisionOverrides((prev) => ({
         ...prev,
-        [decisionId]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
-        [targetDec.id]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
-        [targetDec.invoiceId]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
+        [decisionId]: { status: 'EXECUTED', executedAt: todayStr },
+        [targetDec.id]: { status: 'EXECUTED', executedAt: todayStr },
+        [targetDec.invoiceId]: { status: 'EXECUTED', executedAt: todayStr },
       }));
 
       showToast(`Preview mode: Decision executed locally (${targetDec.action}).`, 'success');
@@ -822,31 +1021,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Authenticated Persistence
-    const res = await accountService.saveDecisionStatus(workspace.id, decisionId, 'EXECUTED');
+    const dbRecord = persistedDbDecisions[targetDec.invoiceId] || persistedDbDecisions[decisionId];
+    const realDbDecisionId = (dbRecord && isUuid(dbRecord.id)) ? dbRecord.id : (isUuid(decisionId) ? decisionId : targetDec.id);
+
+    const res = await accountService.executeDecision(workspace.id, realDbDecisionId);
     if (!res.success) {
-      showToast(res.error || 'Failed to persist decision execution to database.', 'error');
+      showToast(res.error || 'Failed to execute decision in database.', 'error');
       return;
     }
+
+    const updates = res.data?.invoiceUpdates || {};
+    const nowStr = new Date().toISOString();
+    const todayStr = nowStr.split('T')[0];
 
     setInvoices((prev) =>
       prev.map((inv) => {
         if (inv.id === targetDec.invoiceId) {
-          const newStatus = targetDec.action === 'ESCALATE' ? 'escalated' : targetDec.action === 'STOP' ? 'paid' : 'chasing';
           return {
             ...inv,
-            status: newStatus as any,
-            remindersSent: inv.remindersSent + (targetDec.action === 'FOLLOW_UP' || targetDec.action === 'NUDGE' ? 1 : 0),
-            lastContactDate: new Date().toISOString().split('T')[0],
-            nextAction: `Executed: ${targetDec.action} (${targetDec.recommendedTiming})`,
+            status: updates.status || inv.status,
+            remindersSent: updates.reminders_sent !== undefined ? updates.reminders_sent : inv.remindersSent,
+            lastContactDate: updates.last_contact_date || inv.lastContactDate,
+            nextAction: updates.next_action || inv.nextAction,
             timeline: [
               {
-                id: `evt-dec-exec-${Date.now()}`,
+                id: `evt-exec-${Date.now()}`,
                 invoiceId: inv.id,
-                timestamp: new Date().toISOString(),
+                timestamp: nowStr,
                 type: 'decision_executed',
-                title: `AI Action Executed: ${targetDec.action}`,
-                description: targetDec.suggestedMessage.body || targetDec.reason,
-                badge: `${targetDec.action} via ${targetDec.recommendedChannel}`,
+                title: res.data?.eventTitle || `AI Action Executed: ${targetDec.action}`,
+                description: targetDec.suggestedMessage?.body || targetDec.reason,
+                badge: `${targetDec.action}`,
                 actor: 'ai',
               },
               ...inv.timeline,
@@ -859,12 +1064,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setDecisionOverrides((prev) => ({
       ...prev,
-      [decisionId]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
-      [targetDec.id]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
-      [targetDec.invoiceId]: { status: 'EXECUTED', executedAt: new Date().toISOString().split('T')[0] },
+      [decisionId]: { status: 'EXECUTED', executedAt: todayStr },
+      [targetDec.id]: { status: 'EXECUTED', executedAt: todayStr },
+      [targetDec.invoiceId]: { status: 'EXECUTED', executedAt: todayStr },
     }));
 
-    showToast(`Decision executed: ${targetDec.action} dispatched and saved to database!`, 'success');
+    showToast(`AI Decision executed and persisted to database! (${targetDec.action})`, 'success');
   };
 
   const handleDismissDecision = async (decisionId: string) => {
@@ -953,11 +1158,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setPromises((prev) => [newPromise, ...prev]);
 
-        setReportSummary((prev) => ({
-          ...prev,
-          promisesDetected: prev.promisesDetected + 1,
-        }));
-
         setInvoices((prev) =>
           prev.map((inv) => {
             if (inv.id === invoiceId) {
@@ -1007,11 +1207,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 3. UI state updates only after successful DB write
       setPromises((prev) => [res.data!, ...prev]);
-
-      setReportSummary((prev) => ({
-        ...prev,
-        promisesDetected: prev.promisesDetected + 1,
-      }));
 
       setInvoices((prev) =>
         prev.map((inv) => {

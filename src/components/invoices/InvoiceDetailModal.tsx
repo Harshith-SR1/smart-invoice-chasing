@@ -16,6 +16,8 @@ import {
   Check,
   PlusCircle,
   Sparkles,
+  Clock,
+  CreditCard,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { evaluateInvoiceDecision, getWhyUnpaidDiagnosis } from '../../lib/decisionEngine';
@@ -28,6 +30,7 @@ export const InvoiceDetailModal: React.FC = () => {
     customers,
     promises,
     handleRecordPayment,
+    handleClaimPayment,
     handleVerifyClaimedPayment,
     handleCreatePromise,
     handleEscalateInvoice,
@@ -41,6 +44,10 @@ export const InvoiceDetailModal: React.FC = () => {
   const [promiseDate, setPromiseDate] = useState('');
   const [promiseAmount, setPromiseAmount] = useState('');
   const [promiseQuote, setPromiseQuote] = useState('');
+
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claimAmount, setClaimAmount] = useState('');
+  const [claimNote, setClaimNote] = useState('');
 
   if (!selectedInvoice) return null;
 
@@ -80,6 +87,15 @@ export const InvoiceDetailModal: React.FC = () => {
       setPromiseAmount('');
       setPromiseQuote('');
     }
+  };
+
+  const submitClaim = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(claimAmount) || outstanding;
+    handleClaimPayment(selectedInvoice.id, amt, claimNote);
+    setShowClaimModal(false);
+    setClaimAmount('');
+    setClaimNote('');
   };
 
   return (
@@ -344,6 +360,16 @@ export const InvoiceDetailModal: React.FC = () => {
                   Log Promise
                 </button>
 
+                {selectedInvoice.status !== 'paid' && selectedInvoice.paymentClaimStatus !== 'CLAIMED' && (
+                  <button
+                    onClick={() => setShowClaimModal(true)}
+                    className="bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 font-semibold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    Log Payment Claim
+                  </button>
+                )}
+
                 <button
                   onClick={() => setShowPartialModal(true)}
                   className="bg-slate-900 hover:bg-slate-800 text-sky-400 border border-sky-500/30 font-semibold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition"
@@ -516,6 +542,63 @@ export const InvoiceDetailModal: React.FC = () => {
                     className="px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-amber-500 hover:bg-amber-400"
                   >
                     Save Promise
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Log Customer Payment Claim Modal (CLM-001) */}
+        {showClaimModal && (
+          <div className="fixed inset-0 bg-slate-950/80 z-60 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full shadow-2xl">
+              <h4 className="text-base font-bold text-white mb-2">Log Customer Payment Claim</h4>
+              <p className="text-xs text-slate-400 mb-4">
+                Record an unverified claim from the customer that funds have been sent. Financial balances remain unchanged until verified in your bank ledger.
+              </p>
+              <form onSubmit={submitClaim} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    Claimed Amount ({currencySymbol})
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={outstanding}
+                    required
+                    value={claimAmount}
+                    onChange={(e) => setClaimAmount(e.target.value)}
+                    placeholder={`Defaults to full balance: ${outstanding}`}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-xs focus:border-amber-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    Payment Reference / UTR / Note
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={claimNote}
+                    onChange={(e) => setClaimNote(e.target.value)}
+                    placeholder='e.g. UTR / NEFT ref #98721345 or Bank transfer receipt'
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-white text-xs focus:border-amber-500 outline-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowClaimModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-amber-500 hover:bg-amber-400"
+                  >
+                    Log Unverified Claim
                   </button>
                 </div>
               </form>
