@@ -3,12 +3,19 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bot, Eye, EyeOff, AlertCircle, CheckCircle2, Mail, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Bot, Eye, EyeOff, AlertCircle, CheckCircle2, Mail, RefreshCw, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { createClient } from '../../lib/supabase/client';
 import { useApp } from '../../context/AppContext';
 import { PolicyModal } from '../../components/common/PolicyModal';
 import { getAuthRedirectUrl } from '../../lib/authRedirect';
 import { ensureUserWorkspaceProvisioned } from '../../lib/workspaceProvisioning';
+import {
+  validateFullName,
+  validatePhoneNumber,
+  validateEmail,
+  validatePassword,
+  validateSignupPayload,
+} from '../../lib/authValidation';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -24,6 +31,14 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
+
+  // Inline field validation errors
+  const [fullNameError, setFullNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
+  const [agreeTermsError, setAgreeTermsError] = useState<string | null>(null);
 
   const [policyModalType, setPolicyModalType] = useState<'terms' | 'privacy' | null>(null);
 
@@ -64,6 +79,40 @@ export default function SignupPage() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
+  // Live field blur validators
+  const handleBlurFullName = () => {
+    if (!fullName) return;
+    const res = validateFullName(fullName);
+    setFullNameError(res.isValid ? null : res.error || 'Invalid name');
+  };
+
+  const handleBlurPhone = () => {
+    if (!phone) return;
+    const res = validatePhoneNumber(phone, 'IN');
+    setPhoneError(res.isValid ? null : res.error || 'Invalid phone number');
+  };
+
+  const handleBlurEmail = () => {
+    if (!email) return;
+    const res = validateEmail(email);
+    setEmailError(res.isValid ? null : res.error || 'Invalid email address');
+  };
+
+  const handleBlurPassword = () => {
+    if (!password) return;
+    const res = validatePassword(password);
+    setPasswordError(res.isValid ? null : res.error || 'Invalid password');
+  };
+
+  const handleBlurConfirmPassword = () => {
+    if (!confirmPassword) return;
+    if (password !== confirmPassword) {
+      setConfirmPasswordError('Passwords do not match.');
+    } else {
+      setConfirmPasswordError(null);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     setErrorMessage(null);
@@ -100,30 +149,41 @@ export default function SignupPage() {
     e.preventDefault();
     setErrorMessage(null);
 
-    // Validations
-    if (!fullName.trim()) {
-      setErrorMessage('Please enter your full name.');
-      return;
-    }
-    if (!phone.trim()) {
-      setErrorMessage('Please enter your contact number.');
-      return;
-    }
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      setErrorMessage('Please enter a valid business email.');
-      return;
-    }
-    if (password.length < 8) {
-      setErrorMessage('Password must contain at least 8 characters.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setErrorMessage('Passwords do not match.');
-      return;
-    }
-    if (!agreeTerms) {
-      setErrorMessage('Please accept the Terms of Service and Privacy Policy.');
+    // Clear inline errors before full validation run
+    setFullNameError(null);
+    setPhoneError(null);
+    setEmailError(null);
+    setPasswordError(null);
+    setConfirmPasswordError(null);
+    setAgreeTermsError(null);
+
+    // Comprehensive payload validation
+    const validation = validateSignupPayload({
+      fullName,
+      phone,
+      email,
+      password,
+      confirmPassword,
+      agreeTerms,
+    });
+
+    if (!validation.isValid) {
+      if (validation.errors.fullName) setFullNameError(validation.errors.fullName);
+      if (validation.errors.phone) setPhoneError(validation.errors.phone);
+      if (validation.errors.email) setEmailError(validation.errors.email);
+      if (validation.errors.password) setPasswordError(validation.errors.password);
+      if (validation.errors.confirmPassword) setConfirmPasswordError(validation.errors.confirmPassword);
+      if (validation.errors.agreeTerms) setAgreeTermsError(validation.errors.agreeTerms);
+
+      const firstError =
+        validation.errors.fullName ||
+        validation.errors.phone ||
+        validation.errors.email ||
+        validation.errors.password ||
+        validation.errors.confirmPassword ||
+        validation.errors.agreeTerms;
+
+      setErrorMessage(firstError || 'Please fix the highlighted errors before submitting.');
       return;
     }
 
@@ -132,13 +192,13 @@ export default function SignupPage() {
     try {
       const emailRedirectTo = getAuthRedirectUrl('/auth/callback');
       const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
+        email: validation.sanitized.email,
         password,
         options: {
           emailRedirectTo,
           data: {
-            full_name: fullName.trim(),
-            phone: phone.trim(),
+            full_name: validation.sanitized.fullName,
+            phone: validation.sanitized.phoneE164,
           },
         },
       });
@@ -149,6 +209,15 @@ export default function SignupPage() {
           setErrorMessage('An account with this email already exists. Please sign in instead.');
         } else if (error.status === 429 || msg.includes('rate limit') || msg.includes('too many')) {
           setErrorMessage('Too many signup attempts. Please wait 60 seconds before trying again.');
+        } else if (
+          msg.includes('smtp') ||
+          msg.includes('error sending confirmation email') ||
+          msg.includes('email provider') ||
+          msg.includes('failed to send')
+        ) {
+          setErrorMessage(
+            'Email delivery service could not send the verification code. Please check your email address or try again shortly.'
+          );
         } else {
           setErrorMessage(error.message);
         }
@@ -162,7 +231,7 @@ export default function SignupPage() {
         setActiveScreen('dashboard');
 
         // Provision workspace and profile idempotently
-        await ensureUserWorkspaceProvisioned(supabase, data.user, fullName);
+        await ensureUserWorkspaceProvisioned(supabase, data.user, validation.sanitized.fullName);
         router.push('/dashboard');
       } else if (data.user && !data.session) {
         // Email confirmation required -> transition to OTP screen
@@ -180,10 +249,12 @@ export default function SignupPage() {
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isVerifyingOtp) return;
+
     setOtpError(null);
     setResendSuccessMessage(null);
 
-    const cleanCode = otpCode.trim().replace(/\D/g, '');
+    const cleanCode = otpCode.trim().replace(/\D/g, '').slice(0, 6);
     if (cleanCode.length !== 6) {
       setOtpError('Please enter the complete 6-digit verification code.');
       return;
@@ -192,7 +263,9 @@ export default function SignupPage() {
     setIsVerifyingOtp(true);
 
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      const emailValidation = validateEmail(email);
+      const trimmedEmail = emailValidation.isValid ? emailValidation.normalized : email.trim().toLowerCase();
+
       const { data, error } = await supabase.auth.verifyOtp({
         email: trimmedEmail,
         token: cleanCode,
@@ -204,9 +277,9 @@ export default function SignupPage() {
         if (msg.includes('expired')) {
           setOtpError('This verification code has expired. Please click "Resend code" below to receive a new one.');
         } else if (msg.includes('invalid') || msg.includes('token') || msg.includes('incorrect')) {
-          setOtpError('Invalid verification code. Please check your email and try again.');
+          setOtpError('Invalid or already used verification code. Please check your latest email or request a new code.');
         } else if (error.status === 429 || msg.includes('rate limit') || msg.includes('too many')) {
-          setOtpError('Too many failed attempts. Please wait a moment before trying again.');
+          setOtpError('Too many failed attempts. Please wait 60 seconds before trying again.');
         } else {
           setOtpError(error.message || 'Verification failed. Please try again.');
         }
@@ -214,12 +287,14 @@ export default function SignupPage() {
         return;
       }
 
+      // Supabase Auth verified email successfully
       if (data.user) {
         showToast('Email verified successfully! Welcome to Smart Invoice Chasing.', 'success');
         setActiveScreen('dashboard');
 
-        // Provision profile and workspace idempotently
-        await ensureUserWorkspaceProvisioned(supabase, data.user, fullName || data.user.user_metadata?.full_name);
+        // Provision profile and workspace idempotently after verification
+        const validName = validateFullName(fullName).normalized || data.user.user_metadata?.full_name;
+        await ensureUserWorkspaceProvisioned(supabase, data.user, validName);
 
         router.push('/dashboard');
       } else {
@@ -240,7 +315,9 @@ export default function SignupPage() {
     setResendSuccessMessage(null);
 
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      const emailValidation = validateEmail(email);
+      const trimmedEmail = emailValidation.isValid ? emailValidation.normalized : email.trim().toLowerCase();
+
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: trimmedEmail,
@@ -248,9 +325,23 @@ export default function SignupPage() {
 
       if (error) {
         const msg = (error.message || '').toLowerCase();
-        if (error.status === 429 || msg.includes('rate limit') || msg.includes('60 seconds') || msg.includes('security purposes')) {
+        if (
+          error.status === 429 ||
+          msg.includes('rate limit') ||
+          msg.includes('60 seconds') ||
+          msg.includes('security purposes')
+        ) {
           setOtpError('For security, you can only request a new code once every 60 seconds.');
           setResendCooldown(60);
+        } else if (
+          msg.includes('smtp') ||
+          msg.includes('email provider') ||
+          msg.includes('sending email') ||
+          msg.includes('error sending')
+        ) {
+          setOtpError(
+            'Email delivery service is currently encountering an issue. Please verify your email address or try again shortly.'
+          );
         } else {
           setOtpError(error.message || 'Failed to resend verification code.');
         }
@@ -264,7 +355,6 @@ export default function SignupPage() {
       setIsResendingOtp(false);
     }
   };
-
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex items-center justify-center p-6 relative overflow-hidden selection:bg-emerald-500 selection:text-slate-950 font-sans">
       {/* Glow backdrop */}
@@ -310,7 +400,7 @@ export default function SignupPage() {
                 }}
                 className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline shrink-0 cursor-pointer ml-2"
               >
-                Change
+                Change email
               </button>
             </div>
 
@@ -352,11 +442,12 @@ export default function SignupPage() {
                     placeholder="••••••"
                     autoFocus
                     required
-                    className="w-full bg-slate-900 border border-slate-700 rounded-2xl py-3 text-center text-2xl font-mono tracking-[0.5em] text-emerald-400 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-inner"
+                    disabled={isVerifyingOtp}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-2xl py-3 text-center text-2xl font-mono tracking-[0.5em] text-emerald-400 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition shadow-inner disabled:opacity-50"
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 text-center mt-2">
-                  Check your spam/junk folder if you don't see the email within 1 minute.
+                  Check your inbox and spam/junk folder. Verification confirms your account access.
                 </p>
               </div>
 
@@ -406,53 +497,115 @@ export default function SignupPage() {
             )}
 
             {/* Signup Form */}
-            <form onSubmit={handleSignup} className="space-y-3.5">
+            <form onSubmit={handleSignup} className="space-y-3.5" noValidate>
+              {/* Full Name */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
                 <input
                   type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    if (fullNameError) setFullNameError(null);
+                  }}
+                  onBlur={handleBlurFullName}
                   required
                   placeholder="John Doe"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
+                  className={`w-full bg-slate-900 border ${
+                    fullNameError
+                      ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
+                  } rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition`}
                 />
+                {fullNameError && (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{fullNameError}</span>
+                  </p>
+                )}
               </div>
 
+              {/* Contact Number */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Contact Number</label>
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (phoneError) setPhoneError(null);
+                  }}
+                  onBlur={handleBlurPhone}
                   required
                   placeholder="+91 98765 43210"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono"
+                  className={`w-full bg-slate-900 border ${
+                    phoneError
+                      ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
+                  } rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition font-mono`}
                 />
+                {phoneError ? (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{phoneError}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Indian (+91) or international formats accepted. Normalized to E.164.
+                  </p>
+                )}
               </div>
 
+              {/* Business Email */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Business Email</label>
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError(null);
+                  }}
+                  onBlur={handleBlurEmail}
                   required
                   placeholder="you@company.com"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
+                  className={`w-full bg-slate-900 border ${
+                    emailError
+                      ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
+                  } rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition`}
                 />
+                {emailError ? (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{emailError}</span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    A 6-digit verification code will be sent to confirm inbox ownership.
+                  </p>
+                )}
               </div>
 
+              {/* Password */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (passwordError) setPasswordError(null);
+                    }}
+                    onBlur={handleBlurPassword}
                     required
                     placeholder="At least 8 characters"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono"
+                    className={`w-full bg-slate-900 border ${
+                      passwordError
+                        ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
+                    } rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition font-mono`}
                   />
                   <button
                     type="button"
@@ -462,18 +615,33 @@ export default function SignupPage() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {passwordError && (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{passwordError}</span>
+                  </p>
+                )}
               </div>
 
+              {/* Confirm Password */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Password</label>
                 <div className="relative">
                   <input
                     type={showConfirmPassword ? 'text' : 'password'}
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (confirmPasswordError) setConfirmPasswordError(null);
+                    }}
+                    onBlur={handleBlurConfirmPassword}
                     required
                     placeholder="Confirm password"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono"
+                    className={`w-full bg-slate-900 border ${
+                      confirmPasswordError
+                        ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                        : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
+                    } rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition font-mono`}
                   />
                   <button
                     type="button"
@@ -483,14 +651,24 @@ export default function SignupPage() {
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {confirmPasswordError && (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{confirmPasswordError}</span>
+                  </p>
+                )}
               </div>
 
+              {/* Terms & Privacy */}
               <div className="pt-1">
                 <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-400 leading-snug">
                   <input
                     type="checkbox"
                     checked={agreeTerms}
-                    onChange={(e) => setAgreeTerms(e.target.checked)}
+                    onChange={(e) => {
+                      setAgreeTerms(e.target.checked);
+                      if (agreeTermsError) setAgreeTermsError(null);
+                    }}
                     className="w-4 h-4 accent-emerald-500 rounded mt-0.5"
                   />
                   <span>
@@ -519,6 +697,12 @@ export default function SignupPage() {
                     .
                   </span>
                 </label>
+                {agreeTermsError && (
+                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{agreeTermsError}</span>
+                  </p>
+                )}
               </div>
 
               <button

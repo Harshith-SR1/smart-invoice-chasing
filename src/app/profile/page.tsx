@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { validateFullName, validatePhoneNumber } from '../../lib/authValidation';
 
 export default function ProfilePage() {
   const { user, workspace, signOut, showToast } = useApp();
@@ -34,6 +35,17 @@ export default function ProfilePage() {
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
+    const nameRes = validateFullName(fullName);
+    if (!nameRes.isValid) {
+      showToast(nameRes.error || 'Invalid full name', 'error');
+      return;
+    }
+    const phoneRes = validatePhoneNumber(phone, 'IN');
+    if (!phoneRes.isValid) {
+      showToast(phoneRes.error || 'Invalid phone number', 'error');
+      return;
+    }
+
     setIsSaving(true);
     setTimeout(() => {
       setIsSaving(false);

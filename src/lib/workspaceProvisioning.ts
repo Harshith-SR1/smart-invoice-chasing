@@ -1,20 +1,38 @@
 import { SupabaseClient, User } from '@supabase/supabase-js';
+import { validateFullName, validatePhoneNumber } from './authValidation';
 
 /**
  * Idempotently provisions a default organization workspace, profile,
  * membership, and default preferences for a verified user if not already present.
+ * Validates and normalizes full_name and phone on the server before database persistence.
  */
 export async function ensureUserWorkspaceProvisioned(
   supabase: SupabaseClient,
   user: User,
   customFullName?: string
 ): Promise<{ success: boolean; workspaceId?: string }> {
-  const fullName =
+  // Validate candidate name using rigorous full-name validator
+  const candidateName =
     customFullName ||
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
-    user.email?.split('@')[0] ||
-    'User';
+    '';
+
+  const nameValidation = validateFullName(candidateName);
+  const fullName = nameValidation.isValid
+    ? nameValidation.normalized
+    : user.email?.split('@')[0] || 'User';
+
+  // Validate phone number if present in metadata and normalize to E.164
+  const rawPhone = user.user_metadata?.phone;
+  let normalizedPhone: string | null = null;
+  if (typeof rawPhone === 'string' && rawPhone.trim().length > 0) {
+    const phoneValidation = validatePhoneNumber(rawPhone);
+    if (phoneValidation.isValid && phoneValidation.e164) {
+      normalizedPhone = phoneValidation.e164;
+    }
+  }
+
   const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || '';
 
   // 1. Upsert profile
@@ -24,6 +42,7 @@ export async function ensureUserWorkspaceProvisioned(
         id: user.id,
         email: user.email,
         full_name: fullName,
+        phone: normalizedPhone,
         avatar_url: avatarUrl,
         updated_at: new Date().toISOString(),
       },
@@ -55,6 +74,7 @@ export async function ensureUserWorkspaceProvisioned(
         country: 'India',
         currency: 'INR (₹)',
         business_email: user.email || '',
+        business_phone: normalizedPhone,
       })
       .select('id')
       .single();

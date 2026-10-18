@@ -7,6 +7,7 @@ import { Bot, ArrowRight, Eye, EyeOff, Lock, Sparkles, CheckCircle2, AlertCircle
 import { createClient } from '../../lib/supabase/client';
 import { useApp } from '../../context/AppContext';
 import { getAuthRedirectUrl } from '../../lib/authRedirect';
+import { validateEmail } from '../../lib/authValidation';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -96,9 +97,14 @@ export default function LoginPage() {
     setErrorMessage(null);
     setUnconfirmedEmail(null);
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail || !password) {
-      setErrorMessage('Please enter your email and password.');
+    const emailRes = validateEmail(email);
+    if (!emailRes.isValid) {
+      setErrorMessage(emailRes.error || 'Please enter a valid business email.');
+      return;
+    }
+    const trimmedEmail = emailRes.normalized;
+    if (!password) {
+      setErrorMessage('Please enter your password.');
       return;
     }
 
