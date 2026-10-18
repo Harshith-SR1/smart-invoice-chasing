@@ -26,6 +26,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createServiceRoleClient } from '@/lib/supabase/service';
 import { getResendClient, getFromAddress, formatFromHeader } from '@/lib/resend';
 import { sanitiseMessage, plainTextToHtml } from '@/lib/emailSanitiser';
+import {
+  checkAndReserveDispatchRateLimit,
+  releaseRateLimitReservation,
+} from '@/lib/rateLimiter';
 
 type JsonBody = { message_row_id?: string; subject_override?: string; body_override?: string };
 
@@ -126,10 +130,34 @@ export async function POST(req: NextRequest) {
     return errorResponse(422, sanitised.error);
   }
 
+  // ── 8b. Server-enforced rate limit per workspace ──────────────────────────
+  // Target: No more than 10 outbound dispatch attempts per minute per workspace.
+  // Uses atomic distributed reservation across Vercel instances to prevent race conditions.
+  const svcClient = createServiceRoleClient();
+  const rateLimit = await checkAndReserveDispatchRateLimit(msg.workspace_id, msg.id, user.id, svcClient);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Rate limit exceeded: maximum ${rateLimit.limit} email dispatches per minute per workspace. Please retry in ${rateLimit.retryAfterSeconds}s.`,
+        retryAfter: rateLimit.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rateLimit.retryAfterSeconds),
+          'X-RateLimit-Limit': String(rateLimit.limit),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(Math.ceil(rateLimit.resetMs / 1000)),
+        },
+      }
+    );
+  }
+
   // ── 9. Atomic state transition: queued → sending ───────────────────────────
   // The partial UNIQUE INDEX on (invoice_id, status) WHERE status IN ('queued','sending')
   // means only one concurrent request can win this update.
-  const svcClient = createServiceRoleClient();
   const { error: lockError } = await svcClient
     .from('messages')
     .update({
@@ -141,6 +169,8 @@ export async function POST(req: NextRequest) {
     .eq('delivery_status', 'queued'); // guard: only advance from 'queued'
 
   if (lockError) {
+    // Release the reserved rate limit slot since lock failed
+    releaseRateLimitReservation(msg.workspace_id);
     // Unique index violation → another request already in flight
     if (lockError.code === '23505') {
       return errorResponse(409, 'A send request for this message is already in progress.');
@@ -222,12 +252,21 @@ export async function POST(req: NextRequest) {
     })
     .eq('id', msg.invoice_id);
 
-  return NextResponse.json({
-    ok: true,
-    messageId: msg.id,
-    providerMessageId,
-    status: 'sent',
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      messageId: msg.id,
+      providerMessageId,
+      status: 'sent',
+    },
+    {
+      headers: {
+        'X-RateLimit-Limit': String(rateLimit.limit),
+        'X-RateLimit-Remaining': String(rateLimit.remaining),
+        'X-RateLimit-Reset': String(Math.ceil(rateLimit.resetMs / 1000)),
+      },
+    }
+  );
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
