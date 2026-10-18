@@ -26,13 +26,13 @@ import {
   TrendingUp,
   Check,
   Sliders,
-  Maximize2
+  Maximize2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
 export const LandingPage: React.FC = () => {
   const router = useRouter();
-  const { setActiveScreen } = useApp();
+  const { setActiveScreen, user } = useApp();
 
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const totalSlides = 7;
@@ -145,72 +145,72 @@ export const LandingPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentSlide]);
 
-  // Decision Engine Map
+  // Decision Engine Map with Accurate Claims
   const decisionBranches = {
     promise: {
       chipLabel: '“I\'ll pay Friday.”',
-      badge: 'PAYMENT PROMISE DETECTED',
+      badge: 'PAYMENT PROMISE DETECTED (ILLUSTRATIVE)',
       badgeClass: 'bg-[#FFB84D]/15 text-[#FFB84D] border-[#FFB84D]/30',
       action: 'Track Friday (12 Sep)',
       steps: [
-        'AI classified: Explicit commitment to pay on 12 Sep',
-        'Pause unnecessary reminders to preserve relationship',
-        'Verify payment status on Friday 5:00 PM',
-        'If unpaid after Friday → Automatically resume chasing',
+        'AI classified: Explicit commitment to pay on 12 Sep (Illustrative)',
+        'Hold unnecessary reminders to preserve customer relationship',
+        'Review payment status on Friday',
+        'Recommend resuming follow-up if still unpaid',
       ],
-      aiState: 'Pausing Chasing until 12 Sep',
+      aiState: 'Holding follow-ups until 12 Sep',
     },
     approval: {
       chipLabel: '“Waiting for approval.”',
-      badge: 'APPROVAL DELAY DETECTED',
+      badge: 'APPROVAL DELAY DETECTED (ILLUSTRATIVE)',
       badgeClass: 'bg-[#8B7CFF]/15 text-[#8B7CFF] border-[#8B7CFF]/30',
       action: 'Schedule Mid-Week Approval Follow-Up',
       steps: [
-        'AI classified: Internal AP workflow bottleneck',
-        'Request manager / approver contact info from client',
-        'Set soft check-in reminder for Wednesday morning',
-        'Keep invoice priority active in work queue',
+        'AI classified: Internal accounts payable workflow bottleneck',
+        'Recommend requesting manager or approver contact info',
+        'Suggest soft check-in reminder for Wednesday morning',
+        'Keep invoice priority active in collection work queue',
       ],
       aiState: 'Approver Inquiry Scheduled',
     },
     dispute: {
       chipLabel: '“Issue with the invoice.”',
-      badge: 'INVOICE DISPUTE DETECTED',
+      badge: 'INVOICE DISPUTE DETECTED (ILLUSTRATIVE)',
       badgeClass: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
       action: 'Pause Chasing & Flag Human Review 🚨',
       steps: [
-        'AI classified: Billing dispute or PO discrepancy',
-        'Immediately pause automated chaser to prevent frustration',
+        'AI classified: Billing dispute or deliverable query',
+        'Immediately pause automated follow-ups to prevent frustration',
         'Extract specific line item complaint from customer note',
-        'Notify founder/finance lead with drafted response',
+        'Draft clarifying response for finance lead approval',
       ],
-      aiState: 'Flagged for Human Intervention',
+      aiState: 'Flagged for Human Resolution',
     },
     paid: {
       chipLabel: '“Payment sent.”',
-      badge: 'PAYMENT CLAIM DETECTED',
-      badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-      action: 'Verify Payment Receipt & Close',
+      badge: 'PAYMENT CLAIM DETECTED (UNVERIFIED)',
+      badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      action: 'Flag for Bank Verification (Ledger Unchanged)',
       steps: [
-        'AI classified: Remittance claim by accounts payable',
-        'Request transaction reference / payment receipt',
-        'Verify recorded transaction for incoming ₹85,000 credit',
-        'Upon confirmation → Stop collection & mark Recovered',
+        'AI classified: Remittance claim by customer (Unverified)',
+        'Balance remains outstanding until confirmed in bank feed',
+        'Request transaction reference UTR / payment receipt',
+        'Stop collection only after bank credit is verified',
       ],
-      aiState: 'Verifying Remittance UTR',
+      aiState: 'Awaiting Bank UTR Verification',
     },
     no_response: {
       chipLabel: '“No response (7 days).”',
-      badge: 'SILENT CUSTOMER ESCALATION',
+      badge: 'NON-RESPONSIVE ACCOUNT (ILLUSTRATIVE)',
       badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
       action: 'Escalate to Direct Phone Outreach',
       steps: [
-        'AI classified: Email communication ignored',
-        'Escalate from automated Email to direct phone call',
-        'Adjust tone to urgent but firm executive summary',
-        'Prepare phone script for owner review',
+        'AI classified: Email communication unanswered after multiple attempts',
+        'Recommend escalating communication channel from Email to Phone',
+        'Adjust tone to urgent but firm, relationship-sensitive inquiry',
+        'Prepare phone script for operator review',
       ],
-      aiState: 'Direct Escalation Active',
+      aiState: 'Direct Escalation Recommended',
     },
   };
 
@@ -223,6 +223,14 @@ export const LandingPage: React.FC = () => {
     exit: { opacity: 0, x: -80, scale: 0.97, transition: { duration: 0.3 } },
   };
 
+  const handleStartRecovering = () => {
+    if (user) {
+      router.push('/dashboard');
+    } else {
+      router.push('/signup');
+    }
+  };
+
   return (
     <div className="h-screen w-screen bg-[#070B18] text-[#F5F7FF] overflow-hidden select-none relative font-sans">
       {/* Subtle Background Glow Backdrop */}
@@ -230,8 +238,8 @@ export const LandingPage: React.FC = () => {
       <div className="absolute bottom-10 right-10 w-[450px] h-[450px] bg-[#8B7CFF]/6 rounded-full blur-[140px] pointer-events-none" />
 
       {/* MINIMAL TOP NAVIGATION */}
-      <header className="fixed top-0 left-0 right-0 z-50 h-20 px-8 flex items-center justify-between border-b border-white/5 backdrop-blur-md bg-[#070B18]/70">
-        <Link href="/" className="flex items-center gap-3 group">
+      <header className="fixed top-0 left-0 right-0 z-50 h-20 px-6 md:px-8 flex items-center justify-between border-b border-white/5 backdrop-blur-md bg-[#070B18]/70">
+        <Link href="/" className="flex items-center gap-3 group focus-visible:ring-2 focus-visible:ring-[#4F7CFF] rounded-xl outline-none">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4F7CFF] to-[#8B7CFF] flex items-center justify-center shadow-lg shadow-[#4F7CFF]/20 border border-white/10 group-hover:scale-105 transition-transform">
             <Bot className="w-5 h-5 text-white" />
           </div>
@@ -251,7 +259,8 @@ export const LandingPage: React.FC = () => {
               <button
                 key={idx}
                 onClick={() => setCurrentSlide(idx)}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
+                aria-label={`Go to slide ${idx + 1}`}
+                className={`h-1.5 rounded-full transition-all duration-300 focus-visible:ring-1 focus-visible:ring-[#4F7CFF] outline-none ${
                   currentSlide === idx ? 'w-6 bg-[#4F7CFF]' : 'w-1.5 bg-white/20 hover:bg-white/40'
                 }`}
                 title={`Go to slide ${idx + 1}`}
@@ -259,10 +268,38 @@ export const LandingPage: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {/* Top Right Auth Navigation */}
+        <div className="flex items-center gap-3">
+          {user ? (
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold tracking-wide border border-white/10 transition-all flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
+            >
+              <span>Dashboard</span>
+              <ArrowRight className="w-3.5 h-3.5 text-[#4F7CFF]" />
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => router.push('/login')}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => router.push('/signup')}
+                className="px-4 py-2 rounded-xl bg-[#4F7CFF] hover:bg-[#3d69eb] text-white text-xs font-bold tracking-wide shadow-lg shadow-[#4F7CFF]/20 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
+              >
+                Get Started
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {/* MAIN SLIDE CONTAINER (100VH) */}
-      <main className="h-full w-full pt-20 pb-16 px-6 md:px-16 flex items-center justify-center relative z-10">
+      <main className="h-full w-full pt-20 pb-16 px-6 md:px-16 flex items-center justify-center relative z-10 overflow-x-hidden">
         <AnimatePresence mode="wait">
           {/* SLIDE 01: THE HOOK */}
           {currentSlide === 0 && (
@@ -289,15 +326,13 @@ export const LandingPage: React.FC = () => {
                 </h1>
 
                 <p className="text-base md:text-lg text-[#9AA5C2] max-w-xl font-normal leading-relaxed">
-                  Your AI collection agent remembers the conversations you've forgotten and keeps working autonomously until there's a payment outcome.
+                  Your relationship-aware collection assistant remembers conversational context, evaluates overdue receivables, and guides actions until invoices are resolved.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-4 pt-2">
                   <button
-                    onClick={() => {
-                      router.push('/login');
-                    }}
-                    className="px-7 py-3.5 rounded-xl bg-[#4F7CFF] hover:bg-[#3d69eb] text-white font-bold text-sm tracking-wide shadow-xl shadow-[#4F7CFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-3 cursor-pointer"
+                    onClick={handleStartRecovering}
+                    className="px-7 py-3.5 rounded-xl bg-[#4F7CFF] hover:bg-[#3d69eb] text-white font-bold text-sm tracking-wide shadow-xl shadow-[#4F7CFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-3 cursor-pointer focus-visible:ring-2 focus-visible:ring-white outline-none"
                   >
                     <span>START RECOVERING</span>
                     <ArrowRight className="w-4 h-4" />
@@ -305,7 +340,7 @@ export const LandingPage: React.FC = () => {
 
                   <button
                     onClick={goToNextSlide}
-                    className="px-6 py-3.5 rounded-xl bg-[#111936] hover:bg-[#19244d] border border-white/10 text-white font-medium text-sm transition-all flex items-center gap-2 cursor-pointer"
+                    className="px-6 py-3.5 rounded-xl bg-[#111936] hover:bg-[#19244d] border border-white/10 text-white font-medium text-sm transition-all flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
                   >
                     <Play className="w-4 h-4 text-[#4F7CFF] fill-[#4F7CFF]" />
                     <span>WATCH IT WORK</span>
@@ -325,15 +360,18 @@ export const LandingPage: React.FC = () => {
                         <Bot className="w-4 h-4 text-[#4F7CFF]" />
                       </div>
                       <div>
-                        <div className="text-xs font-mono text-white/50">✦ AI COLLECTION AGENT</div>
-                        <div className="text-sm font-semibold text-white flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-300 border border-white/15">DEMO PREVIEW</span>
+                          <span className="text-xs font-mono text-white/50">✦ AI COLLECTION AGENT</span>
+                        </div>
+                        <div className="text-sm font-semibold text-white flex items-center gap-2 mt-0.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          WORKING AUTONOMOUSLY
+                          INTELLIGENT WORKFLOW PREVIEW
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] font-mono text-[#9AA5C2]">BATCH ACTIVE</div>
+                      <div className="text-[10px] font-mono text-[#9AA5C2]">SAMPLE BATCH</div>
                       <div className="text-xs font-mono text-[#FFB84D] font-bold">{processedAccounts} / 12 ACCOUNTS</div>
                     </div>
                   </div>
@@ -341,7 +379,7 @@ export const LandingPage: React.FC = () => {
                   {/* Target Card */}
                   <div className="bg-[#070B18]/80 border border-white/5 rounded-xl p-4 mb-5 flex items-center justify-between">
                     <div>
-                      <div className="text-xs text-[#9AA5C2] font-mono uppercase">Target Account</div>
+                      <div className="text-xs text-[#9AA5C2] font-mono uppercase">Target Account (Illustrative)</div>
                       <div className="text-base font-bold text-white">Rahul Enterprises</div>
                     </div>
                     <div className="text-right">
@@ -352,40 +390,43 @@ export const LandingPage: React.FC = () => {
 
                   {/* Live Activity Logs */}
                   <div className="space-y-2 mb-5 font-mono text-xs">
-                    <div className="text-[#9AA5C2] uppercase text-[10px] tracking-wider mb-2">Agent Activity</div>
+                    <div className="text-[#9AA5C2] uppercase text-[10px] tracking-wider mb-2 flex items-center justify-between">
+                      <span>Simulated Agent Activity</span>
+                      <span className="text-[9px] text-slate-400">Illustrative Sequence</span>
+                    </div>
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 0 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Reading previous invoice conversation history...</span>
+                      <span>Scanning invoice communication history (Demo)...</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 1 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Found payment promise ("Will pay by 30th Jun")...</span>
+                      <span>Detected payment commitment ("Will pay by Friday")...</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 2 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Verifying recorded payment — Promise date passed without credit</span>
+                      <span>Checking bank ledger — Commitment date passed without credit...</span>
                     </div>
 
                     <div className={`flex items-center gap-2 transition-all duration-300 ${agentStep >= 3 ? 'text-emerald-400 opacity-100' : 'text-white/20'}`}>
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>Reviewing last follow-up sentiment & urgency tier...</span>
+                      <span>Evaluating relationship context & recommended tone...</span>
                     </div>
                   </div>
 
                   {/* AI Decision Banner */}
                   <div className="bg-[#4F7CFF]/10 border border-[#4F7CFF]/30 rounded-xl p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <Zap className="w-5 h-5 text-[#4F7CFF] animate-bounce" />
+                      <Zap className="w-5 h-5 text-[#4F7CFF]" />
                       <div>
-                        <div className="text-[10px] font-mono text-[#4F7CFF] uppercase font-bold">AI DECISION</div>
-                        <div className="text-sm font-semibold text-white">RESUME CONVERSATION NOW</div>
+                        <div className="text-[10px] font-mono text-[#4F7CFF] uppercase font-bold">RECOMMENDED ACTION</div>
+                        <div className="text-sm font-semibold text-white">RECOMMEND RESUMING FOLLOW-UP</div>
                       </div>
                     </div>
                     <div className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
-                      Generating email...
+                      Draft ready for review
                     </div>
                   </div>
                 </div>
@@ -406,7 +447,7 @@ export const LandingPage: React.FC = () => {
               <div className="space-y-3">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[#FFB84D] text-xs font-mono">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>THE UNTRACKED RECEIVABLES LEAK</span>
+                  <span>THE UNTRACKED RECEIVABLES LEAK • ILLUSTRATIVE SCENARIO</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   SOMEWHERE IN YOUR INBOX, <br />
@@ -418,8 +459,11 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#111936]/90 border border-white/10 rounded-2xl p-8 max-w-3xl mx-auto shadow-2xl backdrop-blur-xl relative">
                 <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
                   <div className="text-left">
-                    <div className="text-xs font-mono text-[#4F7CFF] font-bold">INV-1042</div>
-                    <div className="text-lg font-bold text-white">Rahul Enterprises</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-[#4F7CFF] font-bold">INV-1042</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-300 border border-white/10">SAMPLE SCENARIO • NOT A REAL CUSTOMER</span>
+                    </div>
+                    <div className="text-lg font-bold text-white mt-0.5">Rahul Enterprises (Illustrative)</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-extrabold text-[#FFB84D]">₹85,000</div>
@@ -437,8 +481,8 @@ export const LandingPage: React.FC = () => {
 
                   <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 1 ? 'bg-white/5 border-white/20 opacity-100' : 'opacity-30 border-white/5'}`}>
                     <div className="text-[10px] font-mono text-white/50">STEP 2</div>
-                    <div className="text-xs font-bold text-white mt-1">Reminder Sent</div>
-                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">30 May</div>
+                    <div className="text-xs font-bold text-white mt-1">Due Date</div>
+                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">30 May (Net 15)</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 2 ? 'bg-[#8B7CFF]/15 border-[#8B7CFF]/40 opacity-100' : 'opacity-30 border-white/5'}`}>
@@ -450,19 +494,19 @@ export const LandingPage: React.FC = () => {
                   <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 3 ? 'bg-[#FFB84D]/15 border-[#FFB84D]/40 opacity-100' : 'opacity-30 border-white/5'}`}>
                     <div className="text-[10px] font-mono text-[#FFB84D]">STEP 4</div>
                     <div className="text-xs font-bold text-[#FFB84D] mt-1">Promise Missed</div>
-                    <div className="text-[10px] text-white/60 mt-0.5">7 June</div>
+                    <div className="text-[10px] text-white/60 mt-0.5">7 June (Target)</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 4 ? 'bg-white/5 border-white/20 opacity-100' : 'opacity-30 border-white/5'}`}>
                     <div className="text-[10px] font-mono text-white/50">STEP 5</div>
-                    <div className="text-xs font-bold text-white mt-1">No Response</div>
-                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">Silent Inbox</div>
+                    <div className="text-xs font-bold text-white mt-1">Silent Inbox</div>
+                    <div className="text-[10px] text-[#9AA5C2] mt-0.5">15 June (Follow-up)</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border transition-all ${timelineStep >= 5 ? 'bg-rose-500/20 border-rose-500/40 opacity-100' : 'opacity-30 border-white/5'}`}>
                     <div className="text-[10px] font-mono text-rose-400">STATUS</div>
                     <div className="text-xs font-extrabold text-rose-400 mt-1">43 Days Pass</div>
-                    <div className="text-[10px] text-rose-300 mt-0.5">Unfinished</div>
+                    <div className="text-[10px] text-rose-300 mt-0.5">12 July (Unresolved)</div>
                   </div>
                 </div>
 
@@ -488,7 +532,7 @@ export const LandingPage: React.FC = () => {
               <div className="text-center space-y-3">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#8B7CFF]/15 border border-[#8B7CFF]/30 text-[#8B7CFF] text-xs font-mono">
                   <Bot className="w-3.5 h-3.5" />
-                  <span>PERSISTENT CONVERSATIONAL CONTEXT</span>
+                  <span>PERSISTENT CONVERSATIONAL CONTEXT • DEMO</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   IT REMEMBERS <br />
@@ -501,14 +545,15 @@ export const LandingPage: React.FC = () => {
                 {/* Left: Customer Email Fragment */}
                 <div className="md:col-span-5 bg-[#111936]/90 border border-white/10 rounded-2xl p-6 shadow-xl relative">
                   <div className="text-xs font-mono text-white/50 mb-3 uppercase tracking-wider flex items-center justify-between">
-                    <span>Customer Email Reply</span>
+                    <span>Customer Email Reply (Illustrative Example)</span>
                     <span className="text-[#9AA5C2]">23 Jun</span>
                   </div>
+                  <div className="text-[11px] font-mono text-[#9AA5C2] mb-2">Imported or logged message context:</div>
                   <div className="bg-[#070B18] p-4 rounded-xl border border-white/5 text-sm text-[#9AA5C2] italic">
                     “Hi Team, we're waiting for management approval on the Q2 audit. Should be completed and paid by Friday.”
                   </div>
                   <div className="mt-4 flex items-center justify-between text-xs text-white/60">
-                    <span>From: Accounts @ Rahul Ent</span>
+                    <span>From: Accounts @ Rahul Ent (Sample)</span>
                     <span className="text-[#FFB84D] font-mono">₹1,20,000</span>
                   </div>
                 </div>
@@ -525,7 +570,7 @@ export const LandingPage: React.FC = () => {
                 {/* Right: AI Memory Card */}
                 <div className="md:col-span-5 bg-[#111936]/90 border border-[#8B7CFF]/30 rounded-2xl p-6 shadow-2xl relative">
                   <div className="text-xs font-mono text-[#8B7CFF] font-bold mb-3 uppercase tracking-wider flex items-center justify-between">
-                    <span>✦ AI COLLECTION MEMORY</span>
+                    <span>✦ AI COLLECTION MEMORY (Illustrative Preview)</span>
                     <span className="w-2 h-2 rounded-full bg-[#8B7CFF] animate-pulse" />
                   </div>
 
@@ -537,19 +582,19 @@ export const LandingPage: React.FC = () => {
 
                     <div className="flex justify-between items-center bg-[#070B18] p-3 rounded-lg border border-white/5">
                       <span className="text-[#9AA5C2]">Promise Status:</span>
-                      <span className="text-rose-400 font-bold">MISSED (43 days past)</span>
+                      <span className="text-rose-400 font-bold">MISSED (Pending Verification)</span>
                     </div>
 
                     <div className="flex justify-between items-center bg-[#070B18] p-3 rounded-lg border border-white/5">
                       <span className="text-[#9AA5C2]">Outstanding Balance:</span>
-                      <span className="text-white font-bold">₹1,20,000</span>
+                      <span className="text-white font-bold">₹1,20,000 (Ledger Unchanged)</span>
                     </div>
                   </div>
 
                   <div className="mt-4 p-3 bg-[#4F7CFF]/15 border border-[#4F7CFF]/30 rounded-xl flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">NEXT AUTOMATED ACTION:</span>
+                    <span className="text-xs font-bold text-white">NEXT RECOMMENDED ACTION:</span>
                     <span className="text-xs font-mono font-bold text-[#4F7CFF] flex items-center gap-1">
-                      RESUME CONVERSATION →
+                      REVIEW & RESUME FOLLOW-UP →
                     </span>
                   </div>
                 </div>
@@ -570,7 +615,7 @@ export const LandingPage: React.FC = () => {
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#4F7CFF]/10 border border-[#4F7CFF]/30 text-[#4F7CFF] text-xs font-mono">
                   <Zap className="w-3.5 h-3.5" />
-                  <span>AUTONOMOUS REASONING MATRIX</span>
+                  <span>REASONING MATRIX • ILLUSTRATIVE AI INTERPRETATIONS</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   IT DOESN'T JUST REMIND. <br />
@@ -587,7 +632,7 @@ export const LandingPage: React.FC = () => {
                     <button
                       key={key}
                       onClick={() => setSelectedBranch(key)}
-                      className={`px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                      className={`px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none ${
                         isSelected
                           ? 'bg-[#4F7CFF] border-[#4F7CFF] text-white shadow-lg shadow-[#4F7CFF]/30 scale-105'
                           : 'bg-[#111936]/80 border-white/10 text-[#9AA5C2] hover:bg-white/5 hover:text-white'
@@ -603,7 +648,7 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#111936]/90 border border-white/10 rounded-2xl p-6 max-w-4xl mx-auto shadow-2xl text-left backdrop-blur-xl grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
                 {/* Left: Input Understanding */}
                 <div className="md:col-span-5 space-y-4">
-                  <div className="text-[10px] font-mono text-white/40 uppercase">AI UNDERSTANDING</div>
+                  <div className="text-[10px] font-mono text-white/40 uppercase">AI INTERPRETATION</div>
 
                   <div className={`inline-block px-3 py-1 rounded-lg border text-xs font-bold font-mono ${currentBranch.badgeClass}`}>
                     {currentBranch.badge}
@@ -648,7 +693,7 @@ export const LandingPage: React.FC = () => {
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
                   <Bot className="w-3.5 h-3.5" />
-                  <span>AUTONOMOUS BACKGROUND EXECUTION</span>
+                  <span>RELATIONSHIP-AWARE COLLECTIONS</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   YOU STOP CHASING. <br />
@@ -660,28 +705,28 @@ export const LandingPage: React.FC = () => {
               <div className="bg-[#111936]/90 border border-white/10 rounded-2xl p-6 max-w-5xl mx-auto shadow-2xl backdrop-blur-xl text-left space-y-4">
                 <div className="flex items-center justify-between border-b border-white/10 pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                    <span className="text-sm font-bold text-white font-mono">✦ LIVE AGENT WORK QUEUE</span>
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-sm font-bold text-white font-mono">✦ COLLECTION WORKFLOW PREVIEW</span>
                   </div>
-                  <span className="text-xs font-mono text-[#9AA5C2]">ACTIVE PIPELINE: 12 ACCOUNTS</span>
+                  <span className="text-xs font-mono text-[#9AA5C2]">ACTIVE PIPELINE: 12 ACCOUNTS (ILLUSTRATIVE DEMO)</span>
                 </div>
 
                 {/* Streamed Work Queue Items */}
                 <div className="space-y-3 font-mono text-xs">
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
-                      <div className="text-white font-bold text-sm">Rahul Enterprises</div>
+                      <div className="text-white font-bold text-sm">Rahul Enterprises (Sample)</div>
                       <div className="text-[#9AA5C2] text-[11px]">Payment promise missed (Target 30 Jun)</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[#FFB84D] font-bold text-sm">₹85,000</div>
-                      <div className="text-emerald-400 text-[11px] font-sans">→ Following up automatically</div>
+                      <div className="text-emerald-400 text-[11px] font-sans">→ Follow-up recommended</div>
                     </div>
                   </div>
 
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
-                      <div className="text-white font-bold text-sm">ABC Pvt Ltd</div>
+                      <div className="text-white font-bold text-sm">ABC Pvt Ltd (Sample)</div>
                       <div className="text-[#9AA5C2] text-[11px]">91 days past due • 2 broken promises</div>
                     </div>
                     <div className="text-right">
@@ -692,25 +737,29 @@ export const LandingPage: React.FC = () => {
 
                   <div className="p-4 bg-[#070B18] rounded-xl border border-white/5 flex flex-wrap items-center justify-between gap-4 hover:border-white/15 transition-all">
                     <div>
-                      <div className="text-white font-bold text-sm">XYZ Agency</div>
+                      <div className="text-white font-bold text-sm">XYZ Agency (Sample)</div>
                       <div className="text-[#9AA5C2] text-[11px]">Customer email reply received 10m ago</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[#8B7CFF] font-bold text-sm">₹92,000</div>
-                      <div className="text-[#8B7CFF] text-[11px] font-sans">→ AI analyzing response sentiment</div>
+                      <div className="text-[#8B7CFF] text-[11px] font-sans">→ Response review & sentiment demo</div>
                     </div>
                   </div>
 
                   <div className="p-4 bg-emerald-950/20 rounded-xl border border-emerald-500/20 flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <div className="text-white font-bold text-sm">Kumar Studios</div>
-                      <div className="text-emerald-400/70 text-[11px]">Payment confirmed via transfer reference</div>
+                      <div className="text-white font-bold text-sm">Kumar Studios (Sample)</div>
+                      <div className="text-emerald-400/70 text-[11px]">Payment confirmed via bank ledger • Invoice settled</div>
                     </div>
                     <div className="text-right">
                       <div className="text-emerald-400 font-bold text-sm">₹42,000</div>
-                      <div className="text-emerald-400 text-[11px] font-bold font-sans">Collection complete ✓</div>
+                      <div className="text-emerald-400 text-[11px] font-bold font-sans">Collection complete (Verified) ✓</div>
                     </div>
                   </div>
+                </div>
+
+                <div className="pt-2 text-[10px] text-[#9AA5C2] font-mono text-center">
+                  * Sample accounts and workflow actions shown for illustrative demonstration.
                 </div>
               </div>
             </motion.div>
@@ -729,7 +778,7 @@ export const LandingPage: React.FC = () => {
               <div className="space-y-3">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
                   <TrendingUp className="w-3.5 h-3.5" />
-                  <span>RECOVERY OUTCOME LEDGER</span>
+                  <span>RECOVERY OUTCOME LEDGER • ILLUSTRATIVE SCENARIOS</span>
                 </div>
                 <h2 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                   EVERY RECOVERED RUPEE <br />
@@ -740,16 +789,16 @@ export const LandingPage: React.FC = () => {
               {/* Recovery Stories */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-left">
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">STORY 01</div>
+                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 01</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹1,20,000</div>
-                  <div className="text-xs text-[#9AA5C2] mt-2">Reminder #2 → Context Check</div>
+                  <div className="text-xs text-[#9AA5C2] mt-2">Reminder #2 → Verified bank credit</div>
                   <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
                     PAID IN FULL ✓
                   </div>
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">STORY 02</div>
+                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 02</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹85,000</div>
                   <div className="text-xs text-[#9AA5C2] mt-2">Missed promise → Follow-up</div>
                   <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
@@ -758,7 +807,7 @@ export const LandingPage: React.FC = () => {
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">STORY 03</div>
+                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 03</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹2,10,000</div>
                   <div className="text-xs text-[#9AA5C2] mt-2">Human Escalation script</div>
                   <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
@@ -767,7 +816,7 @@ export const LandingPage: React.FC = () => {
                 </div>
 
                 <div className="bg-[#111936]/90 border border-white/10 p-5 rounded-2xl">
-                  <div className="text-xs font-mono text-[#9AA5C2]">STORY 04</div>
+                  <div className="text-xs font-mono text-[#9AA5C2]">SCENARIO 04</div>
                   <div className="text-xl font-extrabold text-white mt-1">₹65,000</div>
                   <div className="text-xs text-[#9AA5C2] mt-2">Follow-up #3 → Payment link</div>
                   <div className="mt-4 px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-mono font-bold inline-block">
@@ -779,20 +828,24 @@ export const LandingPage: React.FC = () => {
               {/* Total Recovered Summary Banner */}
               <div className="bg-gradient-to-r from-[#111936] via-[#16224c] to-[#111936] border border-emerald-500/30 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-6 max-w-4xl mx-auto shadow-2xl">
                 <div>
-                  <div className="text-xs font-mono text-emerald-400 font-bold uppercase">TOTAL RECOVERED</div>
+                  <div className="text-xs font-mono text-emerald-400 font-bold uppercase">RECOVERED (SAMPLE COHORT)</div>
                   <div className="text-4xl font-extrabold text-white mt-1">₹4,80,000</div>
                 </div>
                 <div className="flex items-center gap-6 text-left">
                   <div>
-                    <div className="text-xs text-[#9AA5C2]">Recovery Rate</div>
+                    <div className="text-xs text-[#9AA5C2]">Cohort Recovery Rate</div>
                     <div className="text-lg font-bold text-emerald-400">84.2%</div>
                   </div>
                   <div className="w-px h-8 bg-white/10" />
                   <div>
                     <div className="text-xs text-[#9AA5C2]">Attention Needed</div>
-                    <div className="text-lg font-bold text-[#FFB84D]">₹2,80,000</div>
+                    <div className="text-lg font-bold text-[#FFB84D]">₹90,000</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="text-[11px] text-[#9AA5C2] font-mono">
+                * Figures illustrate a sample 90-day recovery cohort (₹4.80L recovered / ₹5.70L cohort total). Not a guarantee of financial outcomes.
               </div>
             </motion.div>
           )}
@@ -810,7 +863,7 @@ export const LandingPage: React.FC = () => {
               <div className="space-y-4">
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#4F7CFF]/15 border border-[#4F7CFF]/30 text-[#4F7CFF] text-xs font-mono">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>ZERO-FRICTION ONBOARDING</span>
+                  <span>ZERO-FRICTION ONBOARDING • GET STARTED</span>
                 </div>
                 <h2 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight leading-tight">
                   ALREADY HAVE <br />
@@ -818,7 +871,9 @@ export const LandingPage: React.FC = () => {
                     MONTHS OF UNPAID INVOICES?
                   </span>
                 </h2>
-                <p className="text-lg text-[#9AA5C2]">Don't start from zero. Import your existing receivables in seconds.</p>
+                <p className="text-lg text-[#9AA5C2] max-w-2xl mx-auto">
+                  Don't start from zero. Upload your spreadsheet to validate invoices, detect duplicates, and organize receivables into actionable collection queues.
+                </p>
               </div>
 
               {/* Import & AI Analysis Animation Card */}
@@ -829,7 +884,7 @@ export const LandingPage: React.FC = () => {
                   </span>
                   <span>→</span>
                   <span className="flex items-center gap-1.5 text-[#8B7CFF]">
-                    <Bot className="w-4 h-4" /> AI ANALYSIS
+                    <Bot className="w-4 h-4" /> VALIDATION & AI ANALYSIS
                   </span>
                   <span>→</span>
                   <span className="flex items-center gap-1.5 text-emerald-400">
@@ -837,35 +892,48 @@ export const LandingPage: React.FC = () => {
                   </span>
                 </div>
 
+                <div className="text-[10px] font-mono text-white/40 uppercase tracking-wider text-center">
+                  SAMPLE WORKSPACE IMPORT PREVIEW (ILLUSTRATIVE)
+                </div>
+
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-left font-mono text-xs">
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
                     <div className="text-[#9AA5C2]">Overdue Invoices</div>
                     <div className="text-lg font-bold text-white mt-1">43</div>
+                    <div className="text-[9px] text-[#4F7CFF] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
-                    <div className="text-[#9AA5C2]">Unfinished Follow-ups</div>
+                    <div className="text-[#9AA5C2]">Follow-ups Needed</div>
                     <div className="text-lg font-bold text-[#8B7CFF] mt-1">18</div>
+                    <div className="text-[9px] text-[#8B7CFF] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
                     <div className="text-[#9AA5C2]">Missed Promises</div>
                     <div className="text-lg font-bold text-[#FFB84D] mt-1">11</div>
+                    <div className="text-[9px] text-[#FFB84D] mt-0.5">Sample count</div>
                   </div>
                   <div className="bg-[#070B18] p-3 rounded-xl border border-white/5">
                     <div className="text-[#9AA5C2]">Priority Receivables</div>
                     <div className="text-lg font-bold text-emerald-400 mt-1">₹6.2L</div>
+                    <div className="text-[9px] text-emerald-400 mt-0.5">Sample total</div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-center gap-4">
+                <div className="pt-4 border-t border-white/10 flex flex-col items-center justify-center gap-3">
                   <button
-                    onClick={() => {
-                      router.push('/login');
-                    }}
-                    className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-[#4F7CFF] to-[#8B7CFF] text-white font-bold text-sm tracking-wide shadow-xl shadow-[#4F7CFF]/30 hover:scale-[1.03] active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer"
+                    onClick={handleStartRecovering}
+                    className="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-[#4F7CFF] to-[#8B7CFF] text-white font-bold text-sm tracking-wide shadow-xl shadow-[#4F7CFF]/30 hover:scale-[1.03] active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer focus-visible:ring-2 focus-visible:ring-white outline-none"
                   >
                     <span>START RECOVERING NOW</span>
                     <ArrowRight className="w-5 h-5" />
                   </button>
+
+                  <div className="text-xs text-[#9AA5C2]">
+                    Already have an account?{' '}
+                    <Link href="/login" className="text-[#4F7CFF] hover:underline font-semibold focus-visible:ring-1 focus-visible:ring-[#4F7CFF] rounded outline-none">
+                      Sign in here
+                    </Link>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -874,9 +942,9 @@ export const LandingPage: React.FC = () => {
       </main>
 
       {/* MINIMAL BOTTOM CONTROLS & PROGRESS */}
-      <footer className="fixed bottom-0 left-0 right-0 z-50 h-16 px-8 flex items-center justify-between border-t border-white/5 bg-[#070B18]/80 backdrop-blur-md">
+      <footer className="fixed bottom-0 left-0 right-0 z-50 h-16 px-6 md:px-8 flex items-center justify-between border-t border-white/5 bg-[#070B18]/80 backdrop-blur-md">
         <div className="text-xs text-[#9AA5C2] font-mono flex items-center gap-3">
-          <span className="hidden sm:inline">Use mouse wheel, arrows, or controls to navigate story</span>
+          <span className="hidden sm:inline">Use mouse wheel, keyboard arrows, or controls to navigate story</span>
           <span className="sm:hidden">Swipe to navigate story</span>
         </div>
 
@@ -884,7 +952,8 @@ export const LandingPage: React.FC = () => {
           <button
             onClick={goToPrevSlide}
             disabled={currentSlide === 0}
-            className={`p-2 rounded-lg border border-white/10 transition-all ${
+            aria-label="Previous Slide"
+            className={`p-2 rounded-lg border border-white/10 transition-all focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none ${
               currentSlide === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 text-white cursor-pointer'
             }`}
             title="Previous Slide"
@@ -899,7 +968,8 @@ export const LandingPage: React.FC = () => {
           <button
             onClick={goToNextSlide}
             disabled={currentSlide === totalSlides - 1}
-            className={`p-2 rounded-lg border border-white/10 transition-all ${
+            aria-label="Next Slide"
+            className={`p-2 rounded-lg border border-white/10 transition-all focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none ${
               currentSlide === totalSlides - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10 text-white cursor-pointer'
             }`}
             title="Next Slide"
