@@ -29,10 +29,12 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { createClient } from '../../lib/supabase/client';
 
 export const LandingPage: React.FC = () => {
   const router = useRouter();
-  const { setActiveScreen, user } = useApp();
+  const { setActiveScreen, user, session: appSession, isLoading } = useApp();
+  const supabase = createClient();
 
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const totalSlides = 7;
@@ -223,8 +225,28 @@ export const LandingPage: React.FC = () => {
     exit: { opacity: 0, x: -80, scale: 0.97, transition: { duration: 0.3 } },
   };
 
-  const handleStartRecovering = () => {
-    if (user) {
+  const handleDashboardClick = async () => {
+    let session = appSession;
+    if (isLoading || !session) {
+      const { data } = await supabase.auth.getSession();
+      session = data.session;
+    }
+
+    if (session?.user) {
+      router.push('/dashboard');
+    } else {
+      router.push('/login?next=/dashboard');
+    }
+  };
+
+  const handleStartRecovering = async () => {
+    let session = appSession;
+    if (isLoading || !session) {
+      const { data } = await supabase.auth.getSession();
+      session = data.session;
+    }
+
+    if (session?.user) {
       router.push('/dashboard');
     } else {
       router.push('/signup');
@@ -269,17 +291,16 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Top Right Auth Navigation */}
+        {/* Top Right Auth Navigation — Dashboard Available Across All Slides */}
         <div className="flex items-center gap-3">
-          {user ? (
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold tracking-wide border border-white/10 transition-all flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
-            >
-              <span>Dashboard</span>
-              <ArrowRight className="w-3.5 h-3.5 text-[#4F7CFF]" />
-            </button>
-          ) : (
+          <button
+            onClick={handleDashboardClick}
+            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold tracking-wide border border-white/10 transition-all flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
+          >
+            <span>Dashboard</span>
+            <ArrowRight className="w-3.5 h-3.5 text-[#4F7CFF]" />
+          </button>
+          {!user && (
             <>
               <button
                 onClick={() => router.push('/login')}
