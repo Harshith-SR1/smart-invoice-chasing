@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -29,12 +29,10 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { createClient } from '../../lib/supabase/client';
 
 export const LandingPage: React.FC = () => {
   const router = useRouter();
-  const { setActiveScreen, user, session: appSession, isLoading } = useApp();
-  const supabase = createClient();
+  const { setActiveScreen, user, session: appSession, isLoading, showToast } = useApp();
 
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const totalSlides = 7;
@@ -225,31 +223,73 @@ export const LandingPage: React.FC = () => {
     exit: { opacity: 0, x: -80, scale: 0.97, transition: { duration: 0.3 } },
   };
 
-  const handleDashboardClick = async () => {
-    let session = appSession;
-    if (isLoading || !session) {
-      const { data } = await supabase.auth.getSession();
-      session = data.session;
-    }
+  const isNavigatingRef = useRef(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const sessionRef = useRef(appSession);
+  sessionRef.current = appSession;
+  const userRef = useRef(user);
+  userRef.current = user;
+  const isLoadingRef = useRef(isLoading);
+  isLoadingRef.current = isLoading;
 
-    if (session?.user) {
-      router.push('/dashboard');
-    } else {
-      router.push('/login?next=/dashboard');
+  const waitForSessionResolution = async (): Promise<boolean> => {
+    if (!isLoadingRef.current) return true;
+    const startTime = Date.now();
+    while (isLoadingRef.current && Date.now() - startTime < 4000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return !isLoadingRef.current;
+  };
+
+  const handleDashboardClick = async () => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    setIsNavigating(true);
+
+    try {
+      if (isLoadingRef.current) {
+        const resolved = await waitForSessionResolution();
+        if (!resolved) {
+          showToast?.('Authentication check timed out. Please try again.', 'error');
+          return;
+        }
+      }
+      const session = sessionRef.current || (userRef.current ? ({ user: userRef.current } as any) : null);
+
+      if (session?.user) {
+        router.push('/dashboard');
+      } else {
+        router.push('/login?next=/dashboard');
+      }
+    } finally {
+      isNavigatingRef.current = false;
+      setIsNavigating(false);
     }
   };
 
   const handleStartRecovering = async () => {
-    let session = appSession;
-    if (isLoading || !session) {
-      const { data } = await supabase.auth.getSession();
-      session = data.session;
-    }
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    setIsNavigating(true);
 
-    if (session?.user) {
-      router.push('/dashboard');
-    } else {
-      router.push('/signup');
+    try {
+      if (isLoadingRef.current) {
+        const resolved = await waitForSessionResolution();
+        if (!resolved) {
+          showToast?.('Authentication check timed out. Please try again.', 'error');
+          return;
+        }
+      }
+      const session = sessionRef.current || (userRef.current ? ({ user: userRef.current } as any) : null);
+
+      if (session?.user) {
+        router.push('/dashboard');
+      } else {
+        router.push('/signup');
+      }
+    } finally {
+      isNavigatingRef.current = false;
+      setIsNavigating(false);
     }
   };
 
