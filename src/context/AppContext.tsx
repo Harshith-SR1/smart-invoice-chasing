@@ -52,6 +52,7 @@ interface AppContextType {
   setActiveInvoiceFilter: (filter: string) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  isLoading: boolean;
   
   // Actions
   handleImportData: (newRecords: any[], fileName?: string, batchId?: string, duplicatePolicy?: 'update' | 'skip') => void;
@@ -204,6 +205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [promises, setPromises] = useState<PaymentPromise[]>(initialPaymentPromises);
   const [automationRules, setAutomationRules] = useState<AutomationRules>(defaultAutomationRules);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   
   const isRealWorkspace = Boolean(user && isUuid(workspace.id) && workspace.id !== 'ws-default');
 
@@ -239,11 +241,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      if (!session?.user) {
+        setIsLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      if (!session?.user) {
+        setIsLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -252,8 +260,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Load backend data if available
   useEffect(() => {
     async function loadData() {
-      if (!user) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
       try {
+        setIsLoading(true);
         const ws = await accountService.fetchWorkspace(user?.id);
         if (ws) setWorkspace(ws);
 
@@ -315,6 +327,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } catch (err) {
         console.warn('Backend load notice (using current state):', err);
+      } finally {
+        setIsLoading(false);
       }
     }
     loadData();
@@ -1342,6 +1356,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveInvoiceFilter,
         searchQuery,
         setSearchQuery,
+        isLoading,
         handleImportData,
         handleResumeAllCollections,
         handleResumeInvoiceCollection,
