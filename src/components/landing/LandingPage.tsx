@@ -331,15 +331,8 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Top Right Auth Navigation — Dashboard Available Across All Slides */}
+        {/* Top Right Auth Navigation */}
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleDashboardClick}
-            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold tracking-wide border border-white/10 transition-all flex items-center gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#4F7CFF] outline-none"
-          >
-            <span>Dashboard</span>
-            <ArrowRight className="w-3.5 h-3.5 text-[#4F7CFF]" />
-          </button>
           {!user && (
             <>
               <button
