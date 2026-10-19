@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { X, ShieldCheck, FileText, Lock } from 'lucide-react';
 
 interface PolicyModalProps {
@@ -30,13 +30,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
                 {type === 'terms' ? 'TERMS OF SERVICE' : 'PRIVACY POLICY'}
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Smart Invoice Chasing &bull; Effective Date: [Effective Date]
+                Smart Invoice Chasing &bull; Effective Date: October 2026
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="p-2 rounded-xl text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -50,14 +51,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-300 space-y-1">
                 <p className="font-semibold text-white">Notice & Disclaimer</p>
                 <p className="text-[11px] text-slate-400">
-                  This Terms of Service agreement applies to your access and use of the Smart Invoice Chasing platform provided by [Company Legal Name]. Please read these terms carefully before creating an account.
+                  This Terms of Service agreement applies to your access and use of the Smart Invoice Chasing platform. Please read these terms carefully before creating an account.
                 </p>
               </div>
 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">1. Introduction & Acceptance</h3>
                 <p>
-                  By creating an account, accessing, or using Smart Invoice Chasing ("Service"), you agree to be bound by these Terms of Service ("Terms"). If you are entering into these Terms on behalf of a company or other legal entity, you represent that you have the authority to bind such entity to these Terms.
+                  By creating an account, accessing, or using Smart Invoice Chasing (&quot;Service&quot;), you agree to be bound by these Terms of Service (&quot;Terms&quot;). If you are entering into these Terms on behalf of a company or other legal entity, you represent that you have the authority to bind such entity to these Terms.
                 </p>
               </section>
 
@@ -71,14 +72,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">3. Account Creation & Workspace Setup</h3>
                 <p>
-                  You must register for an account by providing accurate, current, and complete business information ([Business Address], [Company Legal Name], financial contact details). You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your workspace account.
+                  You must register for an account by providing accurate, current, and complete business information (business name, registered business address, financial contact details). You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your workspace account.
                 </p>
               </section>
 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">4. Invoice Data & Customer Content</h3>
                 <p>
-                  You retain all ownership rights to the invoice details, customer contact data, transaction history, and communication records you upload or connect to the Service ("Customer Content"). You grant [Company Legal Name] a limited, non-exclusive license to process, store, and display Customer Content solely to provide and improve the Service.
+                  You retain all ownership rights to the invoice details, customer contact data, transaction history, and communication records you upload or connect to the Service (&quot;Customer Content&quot;). You grant Smart Invoice Chasing a limited, non-exclusive license to process, store, and display Customer Content solely to provide and improve the Service.
                 </p>
               </section>
 
@@ -99,7 +100,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">7. No Guarantee of Payment Recovery</h3>
                 <p>
-                  SMART INVOICE CHASING IS A SOFTWARE TOOL TO ASSIST IN RECEIVABLES COLLECTION. [Company Legal Name] DOES NOT GUARANTEE THAT ANY OVERDUE INVOICE WILL BE COLLECTED OR THAT ANY CUSTOMER WILL FULFILL A PAYMENT PROMISE.
+                  SMART INVOICE CHASING IS A SOFTWARE TOOL TO ASSIST IN RECEIVABLES COLLECTION. SMART INVOICE CHASING DOES NOT GUARANTEE THAT ANY OVERDUE INVOICE WILL BE COLLECTED OR THAT ANY CUSTOMER WILL FULFILL A PAYMENT PROMISE.
                 </p>
               </section>
 
@@ -120,14 +121,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">10. Limitation of Liability</h3>
                 <p>
-                  TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL [Company Legal Name] BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF YOUR USE OR INABILITY TO USE THE SERVICE.
+                  TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL SMART INVOICE CHASING BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF YOUR USE OR INABILITY TO USE THE SERVICE.
                 </p>
               </section>
 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">11. Governing Law & Contact</h3>
                 <p>
-                  These Terms shall be governed by and construed in accordance with applicable state and federal laws. For support or legal inquiries, please contact: <span className="text-emerald-400 font-mono">[Support Email]</span>.
+                  These Terms shall be governed by and construed in accordance with applicable state and federal laws. For support or legal inquiries, please contact: <span className="text-emerald-400 font-mono">support@smart-invoice-chasing.vercel.app</span>.
                 </p>
               </section>
             </div>
@@ -136,7 +137,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-300 space-y-1">
                 <p className="font-semibold text-white">Privacy Commitment</p>
                 <p className="text-[11px] text-slate-400">
-                  Your privacy and the security of your corporate receivables data are paramount to Smart Invoice Chasing ([Company Legal Name]). This Privacy Policy explains how we collect, process, and safeguard your data.
+                  Your privacy and the security of your corporate receivables data are paramount to Smart Invoice Chasing. This Privacy Policy explains how we collect, process, and safeguard your data.
                 </p>
               </div>
 
@@ -172,7 +173,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">4. Data Security & Storage</h3>
                 <p>
-                  We implement industry-standard administrative, physical, and technical safeguards to protect your data against unauthorized access, loss, or alteration. Data is stored in secure server infrastructure ([Cloud Provider Region]).
+                  We implement industry-standard administrative, physical, and technical safeguards to protect your data against unauthorized access, loss, or alteration. Data is stored in secure server infrastructure hosted in cloud data centers.
                 </p>
               </section>
 
@@ -186,14 +187,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">6. User Rights & Data Retention</h3>
                 <p>
-                  You have the right to inspect, update, or request deletion of your account and workspace data at any time by contacting support at <span className="text-emerald-400 font-mono">[Support Email]</span>. Data is retained for as long as your account remains active.
+                  You have the right to inspect, update, or request deletion of your account and workspace data at any time by contacting support at <span className="text-emerald-400 font-mono">support@smart-invoice-chasing.vercel.app</span>. Data is retained for as long as your account remains active.
                 </p>
               </section>
 
               <section className="space-y-2">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">7. Contact Information</h3>
                 <p>
-                  For any privacy inquiries or data requests, please reach out to our Privacy Officer at <span className="text-emerald-400 font-mono">[Support Email]</span> or by mail at [Business Address].
+                  For any privacy inquiries or data requests, please reach out to our team at <span className="text-emerald-400 font-mono">support@smart-invoice-chasing.vercel.app</span> or through your account workspace settings.
                 </p>
               </section>
             </div>
@@ -204,7 +205,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, type, onClose 
         <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-950/80 shrink-0">
           <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Official Legal Document &bull; [Company Legal Name]</span>
+            <span>Terms &amp; Privacy &bull; Smart Invoice Chasing</span>
           </span>
 
           <button

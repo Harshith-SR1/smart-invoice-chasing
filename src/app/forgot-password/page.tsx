@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { Bot, Mail, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { createClient } from '../../lib/supabase/client';
 import { getAuthRedirectUrl } from '../../lib/authRedirect';
+import { validateEmail } from '../../lib/authValidation';
 
 export default function ForgotPasswordPage() {
   const supabase = createClient();
   const [email, setEmail] = useState('');
+  const [submittedEmail, setSubmittedEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -17,25 +19,39 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!email) {
-      setErrorMessage('Please enter your business email address.');
+    const emailRes = validateEmail(email);
+    if (!emailRes.isValid) {
+      setErrorMessage(emailRes.error || 'Please enter a valid business email.');
       return;
     }
 
+    const normalizedEmail = emailRes.normalized;
     setIsLoading(true);
 
     try {
       const redirectTo = getAuthRedirectUrl('/reset-password');
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
         redirectTo,
       });
 
       if (error) {
-        setErrorMessage(error.message);
+        const msg = (error.message || '').toLowerCase();
+        if (error.status === 429 || msg.includes('rate limit') || msg.includes('too many')) {
+          setErrorMessage('Too many password reset requests. Please wait 60 seconds before trying again.');
+        } else if (msg.includes('smtp') || msg.includes('delivery') || msg.includes('email provider')) {
+          setErrorMessage('Email delivery service is temporarily unavailable. Please try again shortly.');
+        } else {
+          // Anti-enumeration: preserve honest presentation without crashing or leaking sensitive provider details
+          setSubmittedEmail(normalizedEmail);
+          setIsSubmitted(true);
+        }
       } else {
+        setSubmittedEmail(normalizedEmail);
         setIsSubmitted(true);
       }
-    } catch (err: any) {
+    } catch {
+      // In case of network exception, avoid leaking stack or provider details
+      setSubmittedEmail(normalizedEmail);
       setIsSubmitted(true);
     } finally {
       setIsLoading(false);
@@ -61,15 +77,15 @@ export default function ForgotPasswordPage() {
           </Link>
 
           {isSubmitted ? (
-            <>
+            <div role="status" aria-live="polite">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center border border-emerald-500/30 mb-3">
                 <Mail className="w-6 h-6" />
               </div>
               <h1 className="text-2xl font-bold text-white tracking-tight">Check your email</h1>
               <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-                Use the password reset link we sent to <strong className="text-white">{email}</strong>.
+                If an account exists for <strong className="text-white">{submittedEmail || email}</strong>, you will receive a secure password reset link.
               </p>
-            </>
+            </div>
           ) : (
             <>
               <h1 className="text-2xl font-bold text-white tracking-tight">Reset your password</h1>
@@ -82,22 +98,37 @@ export default function ForgotPasswordPage() {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+          <div
+            id="forgot-error"
+            role="alert"
+            aria-live="polite"
+            className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2"
+          >
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {!isSubmitted && (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Email</label>
+              <label htmlFor="forgot-email" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Business Email
+              </label>
               <input
+                id="forgot-email"
+                name="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                autoComplete="email"
                 required
                 placeholder="you@company.com"
+                aria-invalid={Boolean(errorMessage)}
+                aria-describedby={errorMessage ? 'forgot-error' : undefined}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
               />
             </div>

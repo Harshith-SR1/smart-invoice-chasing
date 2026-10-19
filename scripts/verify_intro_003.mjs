@@ -131,14 +131,14 @@ console.log('\n>>> TEST 6: AUTHENTICATION RETURN DESTINATION');
 
 // 6.1 Check auth callback route preserves destination
 assert.strictEqual(
-  authCallbackCode.includes("searchParams.get('next') ?? '/dashboard'"),
+  authCallbackCode.includes("searchParams.get('next')"),
   true,
-  'auth/callback route checks next searchParam with /dashboard default'
+  'auth/callback route checks next searchParam'
 );
 assert.strictEqual(
-  authCallbackCode.includes("const destination = next.startsWith('/') ? next : '/dashboard'"),
+  authCallbackCode.includes("getSafeRedirectDestination(next)"),
   true,
-  'auth/callback validates relative path destination for safe open-redirect protection'
+  'auth/callback validates destination with getSafeRedirectDestination for open-redirect protection'
 );
 // 6.2 Check login page directs to dashboard for authenticated visitors
 assert.strictEqual(

@@ -118,3 +118,54 @@ export function getRequestOrigin(request: Request): string {
 
   return PRODUCTION_SITE_URL;
 }
+
+/**
+ * Validates and sanitizes an internal redirect destination path.
+ * - Must be a string starting with a single '/'
+ * - Strictly rejects protocol-relative URLs ('//...'), backslashes ('/\...'), URL schemes, whitespace, control chars
+ * - Rejects auth routes (/login, /signup, /auth/callback, /forgot-password, /reset-password) to avoid redirect loops
+ * - Returns clean relative path (with query & hash preserved), or null if unsafe/invalid
+ */
+export function getSafeRedirectDestination(destination: unknown): string | null {
+  if (typeof destination !== 'string') return null;
+  const trimmed = destination.trim();
+  if (!trimmed) return null;
+
+  // Must begin with a single forward slash and not '//' or '/\' or backslash
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+    return null;
+  }
+
+  // Reject CR/LF/null characters
+  if (/[\r\n\0\t]/.test(trimmed)) {
+    return null;
+  }
+
+  // Reject URL scheme indicators (like javascript:, data:, vbscript:, etc.)
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    const dummyOrigin = 'https://smart-invoice-chasing.local';
+    const parsed = new URL(trimmed, dummyOrigin);
+    // Origin must remain exactly the dummy origin
+    if (parsed.origin !== dummyOrigin) {
+      return null;
+    }
+    const lowerPath = parsed.pathname.toLowerCase();
+    // Prevent redirect loops back to auth pages
+    if (
+      lowerPath === '/login' ||
+      lowerPath === '/signup' ||
+      lowerPath === '/auth/callback' ||
+      lowerPath === '/forgot-password' ||
+      lowerPath === '/reset-password'
+    ) {
+      return null;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}

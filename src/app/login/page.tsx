@@ -1,47 +1,53 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Bot, ArrowRight, Eye, EyeOff, Lock, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Bot, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { createClient } from '../../lib/supabase/client';
 import { useApp } from '../../context/AppContext';
-import { getAuthRedirectUrl } from '../../lib/authRedirect';
+import { getAuthRedirectUrl, getSafeRedirectDestination } from '../../lib/authRedirect';
 import { validateEmail } from '../../lib/authValidation';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { setActiveScreen, showToast } = useApp();
   const supabase = createClient();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
 
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
+  // Validate and sanitize the next destination parameter
+  const rawNext = searchParams.get('next');
+  const safeNext = getSafeRedirectDestination(rawNext);
+
   // Check if session exists or if error param exists on load
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const urlError = params.get('error');
-      if (urlError) {
-        if (urlError === 'auth_callback_failed') {
-          setErrorMessage('Google authentication could not be completed. Please try again.');
-        } else {
-          setErrorMessage(decodeURIComponent(urlError));
-        }
+    const urlError = searchParams.get('error');
+    if (urlError) {
+      if (urlError === 'auth_callback_failed') {
+        setErrorMessage('Google authentication could not be completed. Please try again.');
+      } else {
+        setErrorMessage(decodeURIComponent(urlError));
       }
     }
 
     async function checkAuth() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // If already authenticated, check if workspace exists
+        if (safeNext) {
+          router.push(safeNext);
+          return;
+        }
+
+        // If already authenticated and no next parameter, check workspace
         const { data: workspaces } = await supabase
           .from('workspaces')
           .select('id')
@@ -56,7 +62,7 @@ export default function LoginPage() {
       }
     }
     checkAuth();
-  }, [router, supabase]);
+  }, [router, supabase, searchParams, safeNext]);
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
@@ -74,7 +80,11 @@ export default function LoginPage() {
     }
 
     try {
-      const redirectTo = getAuthRedirectUrl('/auth/callback');
+      const callbackPath = safeNext
+        ? `/auth/callback?next=${encodeURIComponent(safeNext)}`
+        : '/auth/callback';
+      const redirectTo = getAuthRedirectUrl(callbackPath);
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -136,6 +146,12 @@ export default function LoginPage() {
         showToast('Welcome back!', 'success');
         setActiveScreen('dashboard');
 
+        // Route to safe next destination if provided
+        if (safeNext) {
+          router.push(safeNext);
+          return;
+        }
+
         // Check if workspace exists
         const { data: workspaces } = await supabase
           .from('workspaces')
@@ -181,7 +197,12 @@ export default function LoginPage() {
 
         {/* Error Alert */}
         {errorMessage && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+          <div
+            id="login-error"
+            role="alert"
+            aria-live="polite"
+            className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs"
+          >
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <div className="flex-1">
@@ -202,56 +223,58 @@ export default function LoginPage() {
         )}
 
         {/* Business Email & Password Form */}
-        <form onSubmit={handleEmailLogin} className="space-y-4">
+        <form onSubmit={handleEmailLogin} className="space-y-4" noValidate>
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Email</label>
+            <label htmlFor="login-email" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Business Email
+            </label>
             <input
+              id="login-email"
+              name="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
               placeholder="you@company.com"
+              aria-invalid={Boolean(errorMessage)}
+              aria-describedby={errorMessage ? 'login-error' : undefined}
               className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-300">Password</label>
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300">
+                Password
+              </label>
               <Link href="/forgot-password" className="text-[11px] text-emerald-400 hover:underline">
                 Forgot password?
               </Link>
             </div>
             <div className="relative">
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 required
                 placeholder="••••••••"
+                aria-invalid={Boolean(errorMessage)}
+                aria-describedby={errorMessage ? 'login-error' : undefined}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="checkbox"
-              id="remember"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className="w-4 h-4 accent-emerald-500 rounded bg-slate-900 border-slate-800"
-            />
-            <label htmlFor="remember" className="text-xs text-slate-400 cursor-pointer">
-              Remember me
-            </label>
           </div>
 
           <button
@@ -277,7 +300,7 @@ export default function LoginPage() {
           disabled={isGoogleLoading || isEmailLoading}
           className="w-full bg-slate-900 hover:bg-slate-800 text-slate-100 font-semibold py-3 px-4 rounded-xl border border-slate-700 transition duration-200 flex items-center justify-center gap-3 shadow-md disabled:opacity-50 text-xs cursor-pointer"
         >
-          <svg className="w-4 h-4" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -309,5 +332,19 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#070b14] flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

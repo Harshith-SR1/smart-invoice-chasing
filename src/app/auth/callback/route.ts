@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '../../../lib/supabase/server';
-import { getRequestOrigin } from '../../../lib/authRedirect';
+import { getRequestOrigin, getSafeRedirectDestination } from '../../../lib/authRedirect';
 import { ensureUserWorkspaceProvisioned } from '../../../lib/workspaceProvisioning';
 
 export async function GET(request: Request) {
@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const code = searchParams.get('code');
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
-  const next = searchParams.get('next') ?? '/dashboard';
+  const next = searchParams.get('next');
 
   // Handle OAuth provider error / user cancel
   if (error) {
@@ -27,8 +27,8 @@ export async function GET(request: Request) {
       // Idempotently provision user profile and default workspace
       await ensureUserWorkspaceProvisioned(supabase, data.user);
 
-      // 3. Return to destination (dashboard or requested path)
-      const destination = next.startsWith('/') ? next : '/dashboard';
+      // 3. Return to destination (dashboard or requested safe path)
+      const destination = getSafeRedirectDestination(next) || '/dashboard';
       return NextResponse.redirect(`${origin}${destination}`);
     } else if (exchangeError) {
       console.error('Session exchange error:', exchangeError);

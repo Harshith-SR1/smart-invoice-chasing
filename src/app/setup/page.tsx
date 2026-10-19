@@ -16,19 +16,139 @@ export default function SetupPage() {
   const [country, setCountry] = useState(workspace.country);
   const [currency, setCurrency] = useState(workspace.currency);
   const [businessEmail, setBusinessEmail] = useState(user?.email || workspace.businessEmail);
+  const [existingWorkspaceId, setExistingWorkspaceId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Load existing workspace if user was already provisioned
   useEffect(() => {
     if (user?.email && !businessEmail) {
       setBusinessEmail(user.email);
     }
-  }, [user, businessEmail]);
+
+    async function loadUserWorkspace() {
+      if (!user?.id) return;
+      try {
+        const { data: workspaces } = await supabase
+          .from('workspaces')
+          .select('id, business_name, business_type, country, currency, business_email')
+          .eq('user_id', user.id)
+          .limit(1);
+
+        if (workspaces && workspaces.length > 0) {
+          const ws = workspaces[0];
+          setExistingWorkspaceId(ws.id);
+          if (ws.business_name && !ws.business_name.endsWith("'s Organization")) {
+            setBusinessName(ws.business_name);
+          } else if (ws.business_name && !businessName) {
+            setBusinessName(ws.business_name);
+          }
+          if (ws.business_type) setBusinessType(ws.business_type);
+          if (ws.country) setCountry(ws.country);
+          if (ws.currency) setCurrency(ws.currency);
+          if (ws.business_email) setBusinessEmail(ws.business_email);
+        }
+      } catch (err) {
+        console.warn('Could not inspect existing workspace:', err);
+      }
+    }
+
+    loadUserWorkspace();
+  }, [user, businessEmail, supabase, businessName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setErrorMessage(null);
+
+    if (!user?.id) {
+      setErrorMessage('You must be signed in to configure a workspace.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Check if user already has an active workspace
+      let targetWsId = existingWorkspaceId;
+      if (!targetWsId) {
+        const { data: existing } = await supabase
+          .from('workspaces')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1);
+        if (existing && existing.length > 0) {
+          targetWsId = existing[0].id;
+          setExistingWorkspaceId(targetWsId);
+        }
+      }
+
+      if (targetWsId) {
+        // Idempotently configure and update the already-provisioned workspace
+        const { data: updatedRows, error: updateErr } = await supabase
+          .from('workspaces')
+          .update({
+            business_name: businessName,
+            business_type: businessType,
+            country: country,
+            currency: currency,
+            business_email: businessEmail,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetWsId)
+          .eq('user_id', user.id)
+          .select('id');
+
+        if (updateErr) {
+          console.error('Workspace update error:', updateErr);
+          setErrorMessage(updateErr.message || 'Failed to update workspace. Please try again.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (!updatedRows || updatedRows.length === 0) {
+          console.error('Workspace update affected zero rows');
+          setErrorMessage('No authorized workspace found to update. Please refresh the page and try again.');
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        // Only insert if no workspace exists for this user
+        const { data: insertedRows, error: insertErr } = await supabase
+          .from('workspaces')
+          .insert({
+            user_id: user.id,
+            business_name: businessName,
+            business_type: businessType,
+            country: country,
+            currency: currency,
+            business_email: businessEmail,
+          })
+          .select('id');
+
+        if (insertErr) {
+          console.error('Workspace insert error:', insertErr);
+          setErrorMessage(insertErr.message || 'Failed to create workspace. Please try again.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (!insertedRows || insertedRows.length === 0) {
+          console.error('Workspace insert affected zero rows');
+          setErrorMessage('Could not create workspace. Please try again.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (insertedRows[0]?.id) {
+          setExistingWorkspaceId(insertedRows[0].id);
+        }
+      }
+    } catch (err: any) {
+      console.error('Workspace save error:', err);
+      setErrorMessage(err?.message || 'An unexpected error occurred while saving your workspace. Please try again.');
+      setIsLoading(false);
+      return;
+    }
 
     const updatedWs = {
       ...workspace,
@@ -40,23 +160,8 @@ export default function SetupPage() {
     };
 
     setWorkspace(updatedWs);
-
-    if (user?.id) {
-      try {
-        await supabase.from('workspaces').insert({
-          user_id: user.id,
-          business_name: businessName,
-          business_type: businessType,
-          country: country,
-          currency: currency,
-          business_email: businessEmail,
-        });
-      } catch (err) {
-        console.warn('Workspace save warning:', err);
-      }
-    }
-
-    showToast('Workspace set up successfully!', 'success');
+    setIsLoading(false);
+    showToast('Workspace configured successfully!', 'success');
     setActiveScreen('import_data');
     router.push('/dashboard');
   };
@@ -79,29 +184,45 @@ export default function SetupPage() {
         </div>
 
         {errorMessage && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+          <div
+            id="setup-error"
+            role="alert"
+            aria-live="polite"
+            className="mb-6 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2"
+          >
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Name</label>
+            <label htmlFor="setup-business-name" className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Business Name
+            </label>
             <input
+              id="setup-business-name"
+              name="businessName"
               type="text"
               required
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
+              autoComplete="organization"
               placeholder="e.g. Apex Creative Agency"
+              aria-invalid={Boolean(errorMessage)}
+              aria-describedby={errorMessage ? 'setup-error' : undefined}
               className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Type</label>
+              <label htmlFor="setup-business-type" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Business Type
+              </label>
               <select
+                id="setup-business-type"
+                name="businessType"
                 value={businessType}
                 onChange={(e) => setBusinessType(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
@@ -115,8 +236,12 @@ export default function SetupPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Currency</label>
+              <label htmlFor="setup-currency" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Currency
+              </label>
               <select
+                id="setup-currency"
+                name="currency"
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
@@ -132,23 +257,33 @@ export default function SetupPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Country</label>
+              <label htmlFor="setup-country" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Country
+              </label>
               <input
+                id="setup-country"
+                name="country"
                 type="text"
                 required
                 value={country}
                 onChange={(e) => setCountry(e.target.value)}
+                autoComplete="country-name"
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Finance Email</label>
+              <label htmlFor="setup-business-email" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Finance Email
+              </label>
               <input
+                id="setup-business-email"
+                name="email"
                 type="email"
                 required
                 value={businessEmail}
                 onChange={(e) => setBusinessEmail(e.target.value)}
+                autoComplete="email"
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -158,9 +293,9 @@ export default function SetupPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-xs uppercase tracking-wider"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 text-xs uppercase tracking-wider disabled:opacity-50"
             >
-              {isLoading ? 'Creating Workspace...' : 'Complete Setup & Open Engine →'}
+              {isLoading ? 'Saving Workspace...' : 'Complete Setup & Open Engine →'}
             </button>
           </div>
         </form>
