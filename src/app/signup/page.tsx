@@ -63,7 +63,7 @@ export default function SignupPage() {
       const emailParam = params.get('email');
       if (verify === 'true' && emailParam) {
         setEmail(decodeURIComponent(emailParam));
-        setIsVerifyStep(true);
+        // NOTE: In temporary mode without mandatory email OTP, do not force the OTP screen.
       }
     }
   }, []);
@@ -225,18 +225,46 @@ export default function SignupPage() {
         return;
       }
 
-      if (data.user && data.session) {
-        // Immediate session granted (email confirmation disabled in Supabase)
+      // -------------------------------------------------------------------------
+      // TEMPORARY MODE (AUTH-TEMP-OTP-001):
+      // Mandatory email OTP verification is temporarily disabled because custom-domain
+      // email delivery is not yet configured. Users with email/password proceed
+      // directly to the application once an authenticated session exists.
+      // NOTE: This must be restored before public production launch with verified SMTP.
+      // -------------------------------------------------------------------------
+      let activeSession = data.session;
+      let activeUser = data.user;
+
+      // If Supabase auto-confirmed the user without returning session in signUp response,
+      // establish the session via signInWithPassword
+      if (!activeSession && activeUser) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: validation.sanitized.email,
+          password,
+        });
+
+        if (signInData?.session && signInData?.user) {
+          activeSession = signInData.session;
+          activeUser = signInData.user;
+        } else if (signInError) {
+          console.warn('Post-signup session establishment notice:', signInError.message);
+        }
+      }
+
+      if (activeUser && activeSession) {
+        // Valid authenticated session exists
         showToast('Account created successfully!', 'success');
         setActiveScreen('dashboard');
 
-        // Provision workspace and profile idempotently
-        await ensureUserWorkspaceProvisioned(supabase, data.user, validation.sanitized.fullName);
+        // Provision workspace and profile idempotently ONLY after valid authenticated session exists
+        await ensureUserWorkspaceProvisioned(supabase, activeUser, validation.sanitized.fullName);
         router.push('/dashboard');
-      } else if (data.user && !data.session) {
-        // Email confirmation required -> transition to OTP screen
-        setIsVerifyStep(true);
-        setResendCooldown(60);
+      } else if (activeUser && !activeSession) {
+        // Account was created in Supabase Auth, but Supabase project still requires email confirmation.
+        // In this temporary mode, do NOT display the OTP screen. Inform user of required Supabase configuration.
+        setErrorMessage(
+          'Account created, but email confirmation is currently enabled in Supabase. In the Supabase project dashboard, please go to Authentication -> Providers -> Email and turn off "Confirm email" to enable direct signups.'
+        );
       } else {
         setErrorMessage('Could not initiate account creation. Please try again.');
       }
@@ -672,21 +700,17 @@ export default function SignupPage() {
                     required
                     placeholder="you@company.com"
                     aria-invalid={Boolean(emailError)}
-                    aria-describedby={emailError ? 'signup-email-error' : 'signup-email-hint'}
+                    aria-describedby={emailError ? 'signup-email-error' : undefined}
                     className={`w-full bg-slate-900 border ${
                       emailError
                         ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
                         : 'border-slate-800 focus:border-emerald-500 focus:ring-emerald-500'
                     } rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 transition`}
                   />
-                  {emailError ? (
+                  {emailError && (
                     <p id="signup-email-error" className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                       <span>{emailError}</span>
-                    </p>
-                  ) : (
-                    <p id="signup-email-hint" className="text-[11px] text-slate-500 mt-1">
-                      A 6-digit verification code will be sent to confirm inbox ownership.
                     </p>
                   )}
                 </div>
