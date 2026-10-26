@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Search, Plus } from 'lucide-react';
+import { Search, Plus, FileSpreadsheet } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Invoice } from '../../types';
 import { MarkAsPaidModal } from '../common/MarkAsPaidModal';
 import { PageHeader } from '../layout/PageHeader';
+import { exportInvoicesToCsv } from '../../lib/invoiceExport';
 
 export const InvoiceListView: React.FC = () => {
   const {
@@ -16,9 +17,13 @@ export const InvoiceListView: React.FC = () => {
     searchQuery,
     setSearchQuery,
     setActiveScreen,
+    workspace,
+    showToast,
+    loadError,
   } = useApp();
 
   const [markingPaidInvoice, setMarkingPaidInvoice] = useState<Invoice | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const filterOptions = [
     'All',
@@ -52,6 +57,34 @@ export const InvoiceListView: React.FC = () => {
     return true;
   });
 
+  const handleExportCSV = () => {
+    if (loadError) {
+      showToast(`Cannot export invoices: ${loadError}`, 'error');
+      return;
+    }
+    if (filteredInvoices.length === 0) {
+      showToast(`No invoices found matching filter "${activeInvoiceFilter}" to export.`, 'info');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const scopeLabel = `Invoices_${activeInvoiceFilter}`;
+      const result = exportInvoicesToCsv(filteredInvoices, {
+        scopeName: scopeLabel,
+        fallbackCurrency: workspace?.currency || 'INR',
+      });
+      if (!result.success) {
+        showToast(result.error || 'Failed to export invoices CSV.', 'error');
+      } else {
+        showToast(`Exported ${result.rowCount} invoice records (${activeInvoiceFilter}) to CSV!`, 'success');
+      }
+    } catch (err: any) {
+      showToast(`Export failed: ${err?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4 p-4 sm:p-6 max-w-7xl mx-auto font-sans">
       <MarkAsPaidModal invoice={markingPaidInvoice} onClose={() => setMarkingPaidInvoice(null)} />
@@ -61,13 +94,24 @@ export const InvoiceListView: React.FC = () => {
         title="Invoices & Ledger"
         subtitle="Manage invoice records, track partial payments, outstanding balances, and collection states."
         actions={
-          <button
-            onClick={() => setActiveScreen('import_data')}
-            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            Import Invoices
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              disabled={isExporting}
+              title={`Export ${filteredInvoices.length} matching invoices to CSV`}
+              className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-300 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer shadow-md"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>{isExporting ? 'Exporting...' : `Export CSV (${filteredInvoices.length})`}</span>
+            </button>
+            <button
+              onClick={() => setActiveScreen('import_data')}
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Import Invoices
+            </button>
+          </div>
         }
       />
 

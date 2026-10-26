@@ -87,8 +87,36 @@ export async function POST(req: NextRequest) {
     return errorResponse(403, 'Cross-workspace access denied.');
   }
 
+  // Verify caller is authorized for the workspace (owner or active member)
+  const { data: wsOwner } = await supabaseUser
+    .from('workspaces')
+    .select('id')
+    .eq('id', msg.workspace_id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  let isAuthorized = Boolean(wsOwner);
+  if (!isAuthorized) {
+    const { data: member } = await supabaseUser
+      .from('workspace_members')
+      .select('id')
+      .eq('workspace_id', msg.workspace_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (member) isAuthorized = true;
+  }
+
+  if (!isAuthorized) {
+    return errorResponse(403, 'Access denied to target workspace.');
+  }
+
   // ── 6. Collection-state guards ─────────────────────────────────────────────
   const outstanding = Number(invoice.outstanding_amount ?? invoice.amount);
+
+  if (invoice.status === 'draft') {
+    await markFailed(msg.id, 'Invoice is in draft status. Dispatch blocked.');
+    return errorResponse(409, 'Invoice is in draft status. Only finalized invoices may be dispatched.');
+  }
 
   if (invoice.status === 'paid' || outstanding <= 0) {
     await markFailed(msg.id, 'Invoice is already paid. Sending stopped.');
@@ -98,6 +126,74 @@ export async function POST(req: NextRequest) {
   if (invoice.status === 'disputed') {
     await markFailed(msg.id, 'Invoice is in disputed state. Automation blocked.');
     return errorResponse(409, 'Invoice is disputed. Automated email blocked — resolve dispute first.');
+  }
+
+  if (invoice.status === 'cancelled' || invoice.status === 'void') {
+    await markFailed(msg.id, `Invoice is in ${invoice.status} state. Collection stopped.`);
+    return errorResponse(409, `Invoice is ${invoice.status}. Email dispatch is permanently blocked.`);
+  }
+
+  if (invoice.status === 'held' || invoice.status === 'on_hold') {
+    await markFailed(msg.id, 'Invoice is currently on hold. Chasing paused.');
+    return errorResponse(409, 'Invoice is on hold. Automated customer communication is paused.');
+  }
+
+  // Guard against sending reminders while an unverified customer payment claim is pending review
+  const { data: pendingClaims } = await supabaseUser
+    .from('payments')
+    .select('id')
+    .eq('workspace_id', msg.workspace_id)
+    .eq('invoice_id', invoice.id)
+    .eq('source', 'customer_claim')
+    .eq('status', 'pending_verification')
+    .limit(1);
+
+  if (pendingClaims && pendingClaims.length > 0) {
+    await markFailed(msg.id, 'Invoice has an unverified payment claim pending review. Sending stopped.');
+    return errorResponse(409, 'Invoice has an unverified payment claim awaiting verification. Email dispatch blocked until claim is reviewed.');
+  }
+
+  // Guard: Recheck confirmed payments to ensure balance is genuinely outstanding
+  const { data: confirmedPayments } = await supabaseUser
+    .from('payments')
+    .select('amount')
+    .eq('workspace_id', msg.workspace_id)
+    .eq('invoice_id', invoice.id)
+    .eq('status', 'confirmed');
+
+  const totalConfirmed = (confirmedPayments || []).reduce(
+    (sum: number, p: any) => sum + Number(p.amount || 0),
+    0
+  );
+
+  if (totalConfirmed >= Number(invoice.amount)) {
+    await markFailed(msg.id, 'Invoice is fully settled by confirmed payments. Sending stopped.');
+    return errorResponse(409, 'Invoice is fully settled by confirmed payments. Email dispatch blocked.');
+  }
+
+  // Guard: Recheck active decision in public.ai_decisions (if present)
+  const { data: decision } = await supabaseUser
+    .from('ai_decisions')
+    .select('id, status, recommended_action')
+    .eq('workspace_id', msg.workspace_id)
+    .eq('invoice_id', invoice.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (decision) {
+    if (decision.status === 'rejected' || decision.status === 'dismissed') {
+      await markFailed(msg.id, 'Collection decision for this invoice was dismissed or rejected.');
+      return errorResponse(409, 'The collection decision for this invoice was dismissed or rejected.');
+    }
+    if (decision.status === 'executed') {
+      await markFailed(msg.id, 'Collection decision for this invoice was already executed.');
+      return errorResponse(409, 'The collection decision for this invoice has already been executed.');
+    }
+    if (decision.recommended_action === 'STOP') {
+      await markFailed(msg.id, 'Collection decision action is STOP. Dispatch blocked.');
+      return errorResponse(409, 'The collection decision for this invoice is STOP. Dispatch blocked.');
+    }
   }
 
   // ── 7. Validate Resend is configured ──────────────────────────────────────
@@ -223,6 +319,18 @@ export async function POST(req: NextRequest) {
       sent_at: now,
     })
     .eq('id', msg.id);
+
+  // If there is an active decision in ai_decisions for this invoice, advance it to executed
+  if (decision && decision.id) {
+    await svcClient
+      .from('ai_decisions')
+      .update({
+        status: 'executed',
+        executed_at: now,
+      })
+      .eq('id', decision.id)
+      .eq('workspace_id', msg.workspace_id);
+  }
 
   // Write collection event ONLY after confirmed provider acceptance
   await svcClient

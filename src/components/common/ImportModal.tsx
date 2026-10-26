@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { parseInvoiceFile, ParseResult, ColumnMapping } from '../../lib/invoiceParser';
+import { ImportInvoicesBatchResult } from '../../types';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -28,12 +29,14 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
   const { handleImportData, workspace, showToast } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [step, setStep] = useState<'upload' | 'mapping' | 'preview' | 'importing' | 'success'>('upload');
+  const [step, setStep] = useState<'upload' | 'mapping' | 'preview' | 'importing' | 'success' | 'error'>('upload');
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [duplicateStrategy, setDuplicateStrategy] = useState<'update' | 'skip'>('update');
+  const [importResult, setImportResult] = useState<ImportInvoicesBatchResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [customMapping, setCustomMapping] = useState<ColumnMapping>({
     invoiceNumber: '',
     customerName: '',
@@ -111,7 +114,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
-  const handleExecuteImport = () => {
+  const handleExecuteImport = async () => {
     if (!parseResult) return;
 
     const validInvoices = parseResult.rows
@@ -124,11 +127,28 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
     }
 
     setStep('importing');
+    setImportError(null);
 
-    setTimeout(() => {
-      handleImportData(validInvoices, parseResult.fileName, parseResult.batchId, duplicateStrategy);
-      setStep('success');
-    }, 800);
+    try {
+      const result = await handleImportData(
+        validInvoices,
+        parseResult.fileName,
+        parseResult.batchId,
+        duplicateStrategy
+      );
+
+      setImportResult(result);
+
+      if (result.success || result.importedCount > 0) {
+        setStep('success');
+      } else {
+        setImportError(result.errors?.[0] || 'Database persistence failed. No records were written.');
+        setStep('error');
+      }
+    } catch (err: any) {
+      setImportError(err?.message || 'An unexpected error occurred while persisting invoices.');
+      setStep('error');
+    }
   };
 
   const currencySymbol = workspace.currency.includes('INR') || workspace.currency === 'INR' ? '₹' : '$';
@@ -532,18 +552,69 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
 
           {/* STEP 4: Success */}
           {step === 'success' && parseResult && (
-            <div className="py-8 text-center space-y-4">
+            <div className="py-8 text-center space-y-5">
               <div className="w-16 h-16 rounded-3xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-xl font-bold text-white">Import Complete & Verified</h3>
+                <h3 className="text-xl font-bold text-white">Import Complete & Persisted</h3>
                 <p className="text-xs text-slate-300">
-                  Successfully imported <strong className="text-emerald-400">{parseResult.validCount}</strong> exact invoices from{' '}
-                  <strong className="text-white font-mono">{parseResult.fileName}</strong>.
+                  Successfully processed file <strong className="text-white font-mono">{parseResult.fileName}</strong> for your workspace.
                 </p>
                 <p className="text-xs text-slate-400">
-                  All dashboard metrics, customers, aging, and AI decisions have updated in real time.
+                  Database records updated. Dashboard, Invoices, Aging, and Reports reflect the authoritative state.
+                </p>
+              </div>
+
+              {/* Import Breakdown Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-lg mx-auto text-left">
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">New Invoices</span>
+                  <span className="text-lg font-bold text-emerald-400 font-mono">
+                    {importResult ? importResult.insertedCount : parseResult.validCount}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Updated</span>
+                  <span className="text-lg font-bold text-cyan-400 font-mono">
+                    {importResult?.updatedCount ?? 0}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Skipped</span>
+                  <span className="text-lg font-bold text-slate-400 font-mono">
+                    {importResult?.skippedCount ?? 0}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Rejected</span>
+                  <span className="text-lg font-bold text-rose-400 font-mono">
+                    {importResult?.rejectedCount ?? parseResult.errorCount}
+                  </span>
+                </div>
+              </div>
+
+              {importResult && importResult.skippedCount > 0 ? (
+                <p className="text-[11px] text-slate-400 bg-slate-900/60 border border-slate-800 py-2 px-3 rounded-xl max-w-lg mx-auto">
+                  Note: {importResult.skippedCount} duplicate invoice(s) were preserved without modification per your duplicate policy.
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {/* STEP 5: Error */}
+          {step === 'error' && (
+            <div className="py-8 text-center space-y-5">
+              <div className="w-16 h-16 rounded-3xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/30">
+                <AlertCircle className="w-8 h-8" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-xl font-bold text-white">Import Persistence Failed</h3>
+                <p className="text-xs text-rose-300">
+                  {importError || 'An error prevented the invoices from being saved to the database.'}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  No partial or invalid financial records were committed. You can review your file and retry.
                 </p>
               </div>
             </div>
@@ -585,6 +656,25 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
             </div>
           )}
 
+          {step === 'error' && (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setStep('preview')}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-semibold transition"
+              >
+                Back to Preview
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteImport}
+                className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+              >
+                Retry Import
+              </button>
+            </div>
+          )}
+
           {step === 'success' && (
             <button
               type="button"
@@ -594,6 +684,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
               View Updated Dashboard
             </button>
           )}
+
         </div>
       </div>
     </div>

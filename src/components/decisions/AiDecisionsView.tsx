@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Send, Eye, Check, XCircle, Sparkles, Bot, ShieldAlert, Clock, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { Send, Eye, Check, XCircle, Sparkles, Bot, ShieldAlert, Clock, ArrowRight, Sliders } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../layout/PageHeader';
 import { DecisionStatus } from '../../types';
@@ -66,6 +67,15 @@ export const AiDecisionsView: React.FC = () => {
         subtitle="Every collection action evaluated by the AI Decision Engine with grounded evidence and confidence scores."
         badge="Next-Best-Action Engine"
         badgeColor="violet"
+        actions={
+          <Link
+            href="/settings?tab=ai"
+            className="bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-2"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Configure AI Rules</span>
+          </Link>
+        }
       />
 
       {/* Filter Tabs */}
@@ -156,7 +166,7 @@ export const AiDecisionsView: React.FC = () => {
 
                 {/* Actions Footer */}
                 <div className="space-y-2 pt-2 border-t border-slate-800">
-                  {(dec.status === 'PENDING' || dec.status === 'APPROVED') && (
+                  {(dec.status === 'PENDING' || dec.status === 'APPROVED') && dec.action !== 'STOP' && (
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => handleExecuteDecision(dec.id)}
@@ -188,7 +198,7 @@ export const AiDecisionsView: React.FC = () => {
                       View Invoice Dossier
                     </button>
 
-                    {dec.status === 'PENDING' && (
+                    {dec.status === 'PENDING' && dec.action !== 'STOP' && (
                       <div className="flex items-center gap-2.5">
                         <button
                           onClick={() => handleApproveDecision(dec.id)}

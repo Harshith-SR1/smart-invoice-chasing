@@ -6,7 +6,19 @@ export type InvoiceStatus =
   | 'promised'
   | 'disputed'
   | 'escalated'
+  | 'cancelled'
+  | 'void'
+  | 'held'
+  | 'on_hold'
   | 'draft';
+
+export const isCollectibleStatus = (status: InvoiceStatus): boolean =>
+  status !== 'paid' &&
+  status !== 'cancelled' &&
+  status !== 'void' &&
+  status !== 'held' &&
+  status !== 'on_hold' &&
+  status !== 'draft';
 
 export type HealthCategory = 'high_risk' | 'medium_risk' | 'low_risk';
 
@@ -24,7 +36,10 @@ export type PaymentClaimStatus = 'UNCLAIMED' | 'CLAIMED' | 'VERIFIED' | 'REJECTE
 
 export type EventType =
   | 'invoice_created'
+  | 'invoice_updated'
   | 'reminder_sent'
+  | 'reminder_delivered'
+  | 'reminder_failed'
   | 'customer_replied'
   | 'promise_detected'
   | 'promise_missed'
@@ -36,7 +51,11 @@ export type EventType =
   | 'followup_scheduled'
   | 'escalation_triggered'
   | 'decision_generated'
-  | 'decision_executed';
+  | 'decision_approved'
+  | 'decision_dismissed'
+  | 'decision_executed'
+  | 'dispute_opened'
+  | 'dispute_resolved';
 
 export interface InvoiceEvent {
   id: string;
@@ -153,6 +172,30 @@ export interface Customer {
   relationshipImportance?: 'HIGH' | 'MEDIUM' | 'STANDARD';
 }
 
+export type ReliabilityTier = 'RELIABLE' | 'MODERATE' | 'ELEVATED' | 'INSUFFICIENT_HISTORY';
+
+export interface CustomerReliabilityAssessment {
+  customerId: string;
+  customerName: string;
+  company?: string;
+  score: number | null; // null if insufficient history
+  tier: ReliabilityTier;
+  tierLabel: string;
+  tierColor: 'emerald' | 'amber' | 'rose' | 'slate';
+  totalObservations: number;
+  settledInvoicesCount: number;
+  onTimePaymentsCount: number;
+  latePaymentsCount: number;
+  avgPaymentDelayDays: number;
+  fulfilledPromisesCount: number;
+  missedPromisesCount: number;
+  activePromisesCount: number;
+  disputedInvoicesCount: number;
+  totalOutstanding: number;
+  primaryFactors: string[];
+  recommendedAction: string;
+}
+
 export interface PaymentPromise {
   id: string;
   invoiceId: string;
@@ -195,6 +238,7 @@ export interface RecoveryReportSummary {
   month: string;
   year: number;
   totalRecovered: number;
+  totalPortfolioRecovered?: number;
   totalOutstanding: number;
   chasedInvoicesCount: number;
   remindersSent: number;
@@ -207,11 +251,23 @@ export interface RecoveryReportSummary {
     invoiceNumber: string;
     customerName: string;
     amount: number;
+    originalAmount?: number;
+    paidAmount?: number;
+    status?: string;
     remindersCount: number;
     daysOverdue: number;
     lastResponse: string;
     recommendation: string;
   }[];
+  agingBreakdown?: {
+    notDue: { count: number; amount: number };
+    days1_7: { count: number; amount: number };
+    days8_30: { count: number; amount: number };
+    days31_60: { count: number; amount: number };
+    days61_90: { count: number; amount: number };
+    days90Plus: { count: number; amount: number };
+    totalCollectible: number;
+  };
   aiExecutiveSummary: string;
 }
 
@@ -239,4 +295,27 @@ export type ActiveScreen =
   | 'activity'
   | 'aging'
   | 'risk';
+
+export interface ImportRowResult {
+  rowNumber?: number;
+  invoiceNumber: string;
+  customerName?: string;
+  amount?: number;
+  status: 'inserted' | 'updated' | 'skipped' | 'rejected';
+  reason?: string;
+  error?: string;
+}
+
+export interface ImportInvoicesBatchResult {
+  success: boolean;
+  totalRows: number;
+  importedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  rejectedCount: number;
+  errors: string[];
+  rowResults: ImportRowResult[];
+  isPreview?: boolean;
+}
 

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Coins,
   CheckCircle2,
@@ -15,9 +16,10 @@ import {
   Calendar,
   AlertTriangle,
   ArrowRight,
+  Sliders,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Invoice, InvoiceStatus } from '../../types';
+import { Invoice, InvoiceStatus, isCollectibleStatus } from '../../types';
 import { ImportModal } from '../common/ImportModal';
 import { getWhatToChaseToday, evaluateInvoiceDecision } from '../../lib/decisionEngine';
 
@@ -34,6 +36,8 @@ export const MainDashboard: React.FC = () => {
     setActiveScreen,
     setSelectedInvoice,
     showToast,
+    isLoading,
+    loadError,
   } = useApp();
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -49,39 +53,53 @@ export const MainDashboard: React.FC = () => {
   }, []);
 
   const businessOrUserName = useMemo(() => {
-    if (workspace.businessName && workspace.businessName !== 'My Business') {
+    if (
+      workspace.businessName &&
+      workspace.businessName !== 'My Business' &&
+      workspace.businessName !== 'Apex Creative Media & Tech Solutions'
+    ) {
       return workspace.businessName;
     }
-    if (user?.user_metadata?.full_name) {
-      return user.user_metadata.full_name.split(' ')[0];
+    if (user?.user_metadata?.full_name?.trim()) {
+      return user.user_metadata.full_name.trim().split(' ')[0];
     }
     if (user?.email) {
       return user.email.split('@')[0];
     }
-    return 'Harshith';
+    return 'Account Owner';
   }, [user, workspace]);
 
   // Financial Metrics derived directly from single source of truth
+  // Ineligible/non-collectible statuses (paid, cancelled, void, held, on_hold, draft) are strictly excluded
+  const isCollectible = isCollectibleStatus;
+
   const totalOutstanding = useMemo(() => {
     return invoices
-      .filter((i) => i.status !== 'paid')
+      .filter((i) => isCollectible(i.status))
       .reduce((acc, curr) => {
-        const out = curr.outstandingAmount !== undefined ? curr.outstandingAmount : curr.amount;
+        const out = curr.outstandingAmount !== undefined ? curr.outstandingAmount : Math.max(0, curr.amount - (curr.paidAmount || 0));
         return acc + out;
       }, 0);
   }, [invoices]);
 
   const totalOverdue = useMemo(() => {
     return invoices
-      .filter((i) => (i.status === 'overdue' || i.status === 'escalated' || i.status === 'disputed' || i.daysOverdue > 0) && i.status !== 'paid')
+      .filter(
+        (i) =>
+          isCollectible(i.status) &&
+          (i.status === 'overdue' ||
+            i.status === 'escalated' ||
+            i.status === 'disputed' ||
+            i.daysOverdue > 0)
+      )
       .reduce((acc, curr) => {
-        const out = curr.outstandingAmount !== undefined ? curr.outstandingAmount : curr.amount;
+        const out = curr.outstandingAmount !== undefined ? curr.outstandingAmount : Math.max(0, curr.amount - (curr.paidAmount || 0));
         return acc + out;
       }, 0);
   }, [invoices]);
 
   const activeChasingCount = useMemo(() => {
-    return invoices.filter((i) => i.status !== 'paid').length;
+    return invoices.filter((i) => isCollectible(i.status)).length;
   }, [invoices]);
 
   const paidInvoices = useMemo(() => {
@@ -164,29 +182,30 @@ export const MainDashboard: React.FC = () => {
     return events.slice(0, 5);
   }, [invoices]);
 
-  // Aging Buckets Calculation
+  // Aging Buckets Calculation - reconciled strictly with collectible outstanding balances
   const agingBuckets = useMemo(() => {
-    const current = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue <= 0);
-    const dueSoon = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue > 0 && i.daysOverdue <= 15);
-    const days16_30 = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue > 15 && i.daysOverdue <= 30);
-    const days31_60 = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue > 30 && i.daysOverdue <= 60);
-    const days61_90 = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue > 60 && i.daysOverdue <= 90);
-    const days90Plus = invoices.filter((i) => i.status !== 'paid' && i.daysOverdue > 90);
+    const calcOut = (i: Invoice) => i.outstandingAmount !== undefined ? i.outstandingAmount : Math.max(0, i.amount - (i.paidAmount || 0));
+    const current = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue <= 0);
+    const days1_7 = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue >= 1 && i.daysOverdue <= 7);
+    const days8_30 = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue >= 8 && i.daysOverdue <= 30);
+    const days31_60 = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue > 30 && i.daysOverdue <= 60);
+    const days61_90 = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue > 60 && i.daysOverdue <= 90);
+    const days90Plus = invoices.filter((i) => isCollectible(i.status) && i.daysOverdue > 90);
 
     return {
-      current: { count: current.length, amount: current.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
-      dueSoon: { count: dueSoon.length, amount: dueSoon.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
-      days16_30: { count: days16_30.length, amount: days16_30.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
-      days31_60: { count: days31_60.length, amount: days31_60.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
-      days61_90: { count: days61_90.length, amount: days61_90.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
-      days90Plus: { count: days90Plus.length, amount: days90Plus.reduce((sum, i) => sum + (i.outstandingAmount ?? i.amount), 0) },
+      current: { count: current.length, amount: current.reduce((sum, i) => sum + calcOut(i), 0) },
+      days1_7: { count: days1_7.length, amount: days1_7.reduce((sum, i) => sum + calcOut(i), 0) },
+      days8_30: { count: days8_30.length, amount: days8_30.reduce((sum, i) => sum + calcOut(i), 0) },
+      days31_60: { count: days31_60.length, amount: days31_60.reduce((sum, i) => sum + calcOut(i), 0) },
+      days61_90: { count: days61_90.length, amount: days61_90.reduce((sum, i) => sum + calcOut(i), 0) },
+      days90Plus: { count: days90Plus.length, amount: days90Plus.reduce((sum, i) => sum + calcOut(i), 0) },
     };
   }, [invoices]);
 
   // Top 3 High Risk Accounts for snapshot
   const topRiskAccounts = useMemo(() => {
     return invoices
-      .filter((i) => i.status !== 'paid' && (i.daysOverdue > 60 || i.status === 'escalated' || i.healthCategory === 'high_risk'))
+      .filter((i) => isCollectible(i.status) && (i.daysOverdue > 60 || i.status === 'escalated' || i.healthCategory === 'high_risk'))
       .slice(0, 3);
   }, [invoices]);
 
@@ -234,7 +253,82 @@ export const MainDashboard: React.FC = () => {
     }
   };
 
-  // Empty State
+  // 1. Loading State: Display while authenticated workspace data is loading
+  if (isLoading) {
+    return (
+      <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto font-sans text-slate-100 animate-in fade-in duration-150">
+        {/* Top Command Area Skeleton */}
+        <div className="bg-[#070B18] p-5 sm:p-6 rounded-3xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden shadow-2xl">
+          <div className="space-y-2.5 w-full max-w-md">
+            <div className="h-6 w-48 rounded-full bg-slate-800 animate-pulse" />
+            <div className="h-8 w-64 rounded-xl bg-slate-800/80 animate-pulse" />
+            <div className="h-4 w-80 rounded-lg bg-slate-800/60 animate-pulse" />
+          </div>
+          <div className="h-10 w-36 rounded-xl bg-slate-800/60 animate-pulse shrink-0" />
+        </div>
+
+        {/* Financial Overview Grid Skeletons */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-5 p-6 rounded-3xl bg-slate-900/40 border border-slate-800 h-64 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="h-4 w-32 rounded bg-slate-800 animate-pulse" />
+              <div className="h-12 w-48 rounded bg-slate-800/80 animate-pulse" />
+              <div className="h-3 w-40 rounded bg-slate-800/60 animate-pulse" />
+            </div>
+            <div className="h-4 w-full rounded bg-slate-800/40 animate-pulse" />
+          </div>
+
+          <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((idx) => (
+              <div key={idx} className="p-4 rounded-2xl bg-slate-900/40 border border-slate-800 h-32 flex flex-col justify-between">
+                <div className="h-3 w-16 rounded bg-slate-800 animate-pulse" />
+                <div className="h-6 w-24 rounded bg-slate-800/80 animate-pulse" />
+                <div className="h-3 w-20 rounded bg-slate-800/50 animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Priority Mission Skeleton */}
+        <div className="p-6 rounded-3xl bg-slate-900/30 border border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="h-5 w-44 rounded bg-slate-800 animate-pulse" />
+            <div className="h-4 w-24 rounded bg-slate-800/60 animate-pulse" />
+          </div>
+          <div className="space-y-3">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-20 rounded-2xl bg-slate-900/60 border border-slate-800/80 animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Error State: Display honest error if backend loading failed
+  if (loadError && (!invoices || invoices.length === 0)) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto space-y-8 font-sans text-slate-100 animate-in fade-in duration-150">
+        <div className="p-8 rounded-3xl bg-slate-950 border border-rose-500/30 text-center max-w-2xl mx-auto space-y-5 my-12 shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/30 mx-auto flex items-center justify-center text-rose-400">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-xl font-bold text-white tracking-tight">Unable to Load Workspace Data</h2>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">{loadError}</p>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition border border-slate-700 cursor-pointer"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Legitimate Empty State: Display only after loading completes with 0 invoices
   if (!invoices || invoices.length === 0) {
     return (
       <div className="p-6 max-w-7xl mx-auto space-y-8 font-sans text-slate-100">
@@ -250,7 +344,7 @@ export const MainDashboard: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => setIsImportModalOpen(true)}
               className="px-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition shadow-lg shadow-emerald-500/20 cursor-pointer inline-flex items-center gap-2"
@@ -258,8 +352,16 @@ export const MainDashboard: React.FC = () => {
               <UploadCloud className="w-4 h-4" />
               <span>+ Import Invoices</span>
             </button>
-            <span className="text-[11px] text-slate-400 font-mono">Upload CSV or Excel</span>
+            <Link
+              href="/settings?tab=ai"
+              onClick={() => setActiveScreen('settings')}
+              className="px-5 py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 font-semibold text-sm transition cursor-pointer inline-flex items-center gap-2"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Configure AI Rules</span>
+            </Link>
           </div>
+          <span className="text-[11px] text-slate-400 font-mono block text-center mt-2">Upload CSV or Excel &bull; Customize Cadence</span>
         </div>
 
         <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
@@ -301,15 +403,26 @@ export const MainDashboard: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+          <Link
+            href="/settings?tab=ai"
+            onClick={() => setActiveScreen('settings')}
+            className="px-3.5 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
           >
-            <UploadCloud className="w-4 h-4" />
-            <span>+ Import Invoices</span>
-          </button>
-          <span className="text-[10px] text-slate-400 font-mono">Upload CSV or Excel</span>
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Configure AI Rules</span>
+          </Link>
+
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+            >
+              <UploadCloud className="w-4 h-4" />
+              <span>+ Import Invoices</span>
+            </button>
+            <span className="text-[10px] text-slate-400 font-mono">Upload CSV or Excel</span>
+          </div>
         </div>
       </div>
 
@@ -720,10 +833,10 @@ export const MainDashboard: React.FC = () => {
                 }}
                 className="p-2.5 rounded-xl bg-[#070B18] border border-white/5 flex items-center justify-between hover:border-teal-500/50 cursor-pointer transition"
               >
-                <span className="text-teal-400">1–15 Days Overdue</span>
+                <span className="text-teal-400">1–7 Days Overdue</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-slate-400 text-[10px]">{agingBuckets.dueSoon.count} inv</span>
-                  <span className="text-teal-400 font-bold">{formatLakhs(agingBuckets.dueSoon.amount)}</span>
+                  <span className="text-slate-400 text-[10px]">{agingBuckets.days1_7.count} inv</span>
+                  <span className="text-teal-400 font-bold">{formatLakhs(agingBuckets.days1_7.amount)}</span>
                 </div>
               </div>
 
@@ -734,10 +847,10 @@ export const MainDashboard: React.FC = () => {
                 }}
                 className="p-2.5 rounded-xl bg-[#070B18] border border-white/5 flex items-center justify-between hover:border-amber-400/50 cursor-pointer transition"
               >
-                <span className="text-amber-400">16–30 Days Overdue</span>
+                <span className="text-amber-400">8–30 Days Overdue</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-slate-400 text-[10px]">{agingBuckets.days16_30.count} inv</span>
-                  <span className="text-amber-400 font-bold">{formatLakhs(agingBuckets.days16_30.amount)}</span>
+                  <span className="text-slate-400 text-[10px]">{agingBuckets.days8_30.count} inv</span>
+                  <span className="text-amber-400 font-bold">{formatLakhs(agingBuckets.days8_30.amount)}</span>
                 </div>
               </div>
 

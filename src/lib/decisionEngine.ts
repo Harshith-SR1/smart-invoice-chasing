@@ -8,6 +8,9 @@ import {
   DecisionTone,
   WhyUnpaidDiagnosis,
   CollectionCategory,
+  isCollectibleStatus,
+  CustomerReliabilityAssessment,
+  ReliabilityTier,
 } from '../types';
 
 /**
@@ -21,13 +24,14 @@ export function evaluateInvoiceDecision(
   customer?: Customer,
   promises: PaymentPromise[] = []
 ): AiDecision {
-  const outstanding = invoice.outstandingAmount !== undefined ? invoice.outstandingAmount : invoice.amount;
-  const currencySymbol = invoice.currency.includes('INR') || invoice.currency === 'INR' ? '₹' : '$';
+  const outstanding = invoice.outstandingAmount !== undefined ? invoice.outstandingAmount : Math.max(0, invoice.amount - (invoice.paidAmount || 0));
+  const currencySymbol = invoice.currency?.includes('INR') || invoice.currency === 'INR' ? '₹' : '$';
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   const todayStr = `${year}-${month}-${day}`;
+  const custFirstName = (invoice.customerName || 'Customer').trim().split(' ')[0] || 'Customer';
 
   const relatedPromises = promises.filter((p) => p.invoiceId === invoice.id);
   const activePromise = relatedPromises.find((p) => (p.status === 'ACTIVE' || p.status === 'pending') && p.promisedDate >= todayStr);
@@ -63,6 +67,72 @@ export function evaluateInvoiceDecision(
     };
   }
 
+  // 1b. Cancelled, Void, or Draft Invoice -> STOP
+  if (invoice.status === 'cancelled' || invoice.status === 'void' || invoice.status === 'draft') {
+    const isDraft = invoice.status === 'draft';
+    return {
+      id: `dec-${invoice.id}`,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      customerId: invoice.customerId,
+      customerName: invoice.customerName,
+      amount: invoice.amount,
+      outstandingAmount: isDraft ? 0 : outstanding,
+      currency: invoice.currency,
+      action: 'STOP',
+      reason: isDraft
+        ? 'Invoice is in draft status. Automated collection activities are disabled until the invoice is issued.'
+        : `Invoice is ${invoice.status}. All automated collection activities, reminders, and escalation workflows are permanently halted.`,
+      evidence: isDraft
+        ? 'Invoice status is DRAFT. No customer communication or chasing permitted.'
+        : `Invoice status is officially marked as ${invoice.status.toUpperCase()}. No financial claim is active.`,
+      confidence: 100,
+      priority: 'LOW',
+      recommendedTiming: 'Immediate',
+      recommendedChannel: 'Email',
+      recommendedTone: 'Professional',
+      suggestedMessage: {
+        subject: isDraft ? `Draft: Invoice ${invoice.invoiceNumber}` : `Notice: Invoice ${invoice.invoiceNumber} Cancelled`,
+        body: isDraft
+          ? `Invoice ${invoice.invoiceNumber} is currently in draft status.`
+          : `Hi ${custFirstName},\n\nPlease note that invoice ${invoice.invoiceNumber} has been marked as ${invoice.status}. No payment is due for this record.\n\nBest regards,`,
+        rationale: isDraft ? 'Draft invoice placeholder.' : 'Formal notice that invoice is void/cancelled.',
+      },
+      status: 'EXECUTED',
+      createdAt: todayStr,
+      executedAt: todayStr,
+    };
+  }
+
+  // 1c. On-Hold / Suspended Invoice -> WAIT
+  if (invoice.status === 'held' || invoice.status === 'on_hold') {
+    return {
+      id: `dec-${invoice.id}`,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      customerId: invoice.customerId,
+      customerName: invoice.customerName,
+      amount: invoice.amount,
+      outstandingAmount: outstanding,
+      currency: invoice.currency,
+      action: 'WAIT',
+      reason: 'Invoice is currently on administrative hold. Automated communications and reminders are paused pending internal review.',
+      evidence: `Administrative hold flag active on invoice ${invoice.invoiceNumber}. Customer contact blocked.`,
+      confidence: 95,
+      priority: 'LOW',
+      recommendedTiming: 'Upon hold release',
+      recommendedChannel: 'Email',
+      recommendedTone: 'Professional',
+      suggestedMessage: {
+        subject: `Administrative Notice: Invoice ${invoice.invoiceNumber}`,
+        body: `Hi ${custFirstName},\n\nOur finance operations team has placed invoice ${invoice.invoiceNumber} on administrative review. Chasing is temporarily paused.\n\nBest regards,`,
+        rationale: 'Informative notice during account hold period.',
+      },
+      status: 'PENDING',
+      createdAt: todayStr,
+    };
+  }
+
   // 2. Customer Claims Payment Made (Unverified) -> HUMAN / VERIFY
   if (invoice.paymentClaimStatus === 'CLAIMED') {
     return {
@@ -84,7 +154,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: 'Professional',
       suggestedMessage: {
         subject: `Payment Verification: Invoice ${invoice.invoiceNumber}`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nWe received your note that payment for invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) was released. Our accounts team is checking our bank feed and will confirm once credited.\n\nBest regards,`,
+        body: `Hi ${custFirstName},\n\nWe received your note that payment for invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) was released. Our accounts team is checking our bank feed and will confirm once credited.\n\nBest regards,`,
         rationale: 'Polite acknowledgment while awaiting verified banking receipt.',
       },
       status: 'PENDING',
@@ -113,7 +183,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: 'Professional',
       suggestedMessage: {
         subject: `Regarding your query on Invoice ${invoice.invoiceNumber}`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nThank you for reaching out regarding invoice ${invoice.invoiceNumber}. Our operations lead will connect with you today to address your query and ensure everything is aligned.\n\nBest regards,`,
+        body: `Hi ${custFirstName},\n\nThank you for reaching out regarding invoice ${invoice.invoiceNumber}. Our operations lead will connect with you today to address your query and ensure everything is aligned.\n\nBest regards,`,
         rationale: 'De-escalates tension and initiates direct human resolution.',
       },
       status: 'PENDING',
@@ -151,7 +221,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: tone,
       suggestedMessage: {
         subject: `Follow-up on Missed Commitment: Invoice ${invoice.invoiceNumber}`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nFollowing up on our previous conversation regarding invoice ${invoice.invoiceNumber} for ${currencySymbol}${outstanding.toLocaleString()}.\n\nYou had indicated that payment would be completed by ${pDate}, but we have not yet received confirmation of receipt.\n\nPlease let us know if the payment was initiated, or provide an updated transaction reference today.\n\nBest regards,`,
+        body: `Hi ${custFirstName},\n\nFollowing up on our previous conversation regarding invoice ${invoice.invoiceNumber} for ${currencySymbol}${outstanding.toLocaleString()}.\n\nYou had indicated that payment would be completed by ${pDate}, but we have not yet received confirmation of receipt.\n\nPlease let us know if the payment was initiated, or provide an updated transaction reference today.\n\nBest regards,`,
         rationale: 'Directly references customer commitment without generic reminder phrasing.',
       },
       status: 'PENDING',
@@ -182,7 +252,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: 'Gentle',
       suggestedMessage: {
         subject: `Payment Reminder: Invoice ${invoice.invoiceNumber}`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nGentle check-in regarding the planned payment for invoice ${invoice.invoiceNumber} committed for ${pDate}.\n\nThank you for your cooperation.`,
+        body: `Hi ${custFirstName},\n\nGentle check-in regarding the planned payment for invoice ${invoice.invoiceNumber} committed for ${pDate}.\n\nThank you for your cooperation.`,
         rationale: 'Courtesy message only if triggered after grace period.',
       },
       status: 'PENDING',
@@ -211,7 +281,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: 'Firm',
       suggestedMessage: {
         subject: `URGENT: Urgent Attention Required - Invoice ${invoice.invoiceNumber}`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nWe have attempted to reach you multiple times regarding overdue invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) without a response.\n\nPlease contact our finance office today to arrange settlement or clarify any outstanding issues to prevent further escalation.\n\nBest regards,`,
+        body: `Hi ${custFirstName},\n\nWe have attempted to reach you multiple times regarding overdue invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) without a response.\n\nPlease contact our finance office today to arrange settlement or clarify any outstanding issues to prevent further escalation.\n\nBest regards,`,
         rationale: 'Direct outreach for non-responsive accounts.',
       },
       status: 'PENDING',
@@ -242,7 +312,7 @@ export function evaluateInvoiceDecision(
         recommendedTone: 'Gentle',
         suggestedMessage: {
           subject: `Upcoming Due Date: Invoice ${invoice.invoiceNumber}`,
-          body: `Hi ${invoice.customerName.split(' ')[0]},\n\nThis is a friendly reminder that invoice ${invoice.invoiceNumber} for ${currencySymbol}${outstanding.toLocaleString()} is due on ${invoice.dueDate}.\n\nPlease let us know if you need any additional invoice copies or purchase order confirmations to facilitate processing.\n\nBest regards,`,
+          body: `Hi ${custFirstName},\n\nThis is a friendly reminder that invoice ${invoice.invoiceNumber} for ${currencySymbol}${outstanding.toLocaleString()} is due on ${invoice.dueDate}.\n\nPlease let us know if you need any additional invoice copies or purchase order confirmations to facilitate processing.\n\nBest regards,`,
           rationale: 'Early nudge to account for known approval lags.',
         },
         status: 'PENDING',
@@ -268,7 +338,7 @@ export function evaluateInvoiceDecision(
         recommendedTone: 'Gentle',
         suggestedMessage: {
           subject: `Invoice ${invoice.invoiceNumber} Reminder`,
-          body: `Hi ${invoice.customerName.split(' ')[0]},\n\nGentle note regarding invoice ${invoice.invoiceNumber} due on ${invoice.dueDate}.\n\nThank you for your business.`,
+          body: `Hi ${custFirstName},\n\nGentle note regarding invoice ${invoice.invoiceNumber} due on ${invoice.dueDate}.\n\nThank you for your business.`,
           rationale: 'Scheduled due-date reminder.',
         },
         status: 'PENDING',
@@ -305,7 +375,7 @@ export function evaluateInvoiceDecision(
       recommendedTone: tone,
       suggestedMessage: {
         subject: `Overdue Payment Notice: Invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()})`,
-        body: `Hi ${invoice.customerName.split(' ')[0]},\n\nWe are following up regarding invoice ${invoice.invoiceNumber}, which is now ${invoice.daysOverdue} days past due.\n\nThe outstanding balance is ${currencySymbol}${outstanding.toLocaleString()}.\n\nPlease arrange for settlement at your earliest convenience or reply with your payment schedule.\n\nBest regards,`,
+        body: `Hi ${custFirstName},\n\nWe are following up regarding invoice ${invoice.invoiceNumber}, which is now ${invoice.daysOverdue} days past due.\n\nThe outstanding balance is ${currencySymbol}${outstanding.toLocaleString()}.\n\nPlease arrange for settlement at your earliest convenience or reply with your payment schedule.\n\nBest regards,`,
         rationale: 'Standard overdue collection follow-up.',
       },
       status: 'PENDING',
@@ -333,7 +403,7 @@ export function evaluateInvoiceDecision(
     recommendedTone: 'Gentle',
     suggestedMessage: {
       subject: `Friendly Follow-up: Invoice ${invoice.invoiceNumber}`,
-      body: `Hi ${invoice.customerName.split(' ')[0]},\n\nHope all is well. Just a quick reminder that invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) was due on ${invoice.dueDate}.\n\nPlease let us know when we can expect payment.\n\nThank you!`,
+      body: `Hi ${custFirstName},\n\nHope all is well. Just a quick reminder that invoice ${invoice.invoiceNumber} (${currencySymbol}${outstanding.toLocaleString()}) was due on ${invoice.dueDate}.\n\nPlease let us know when we can expect payment.\n\nThank you!`,
       rationale: 'Gentle initial overdue check-in.',
     },
     status: 'PENDING',
@@ -463,11 +533,11 @@ export function getWhatToChaseToday(
   customers.forEach((c) => custMap.set(c.id, c));
 
   const items = invoices
-    .filter((inv) => inv.status !== 'paid' && (inv.outstandingAmount === undefined || inv.outstandingAmount > 0))
+    .filter((inv) => isCollectibleStatus(inv.status) && (inv.outstandingAmount === undefined || inv.outstandingAmount > 0))
     .map((inv) => {
       const cust = custMap.get(inv.customerId);
       const decision = evaluateInvoiceDecision(inv, cust, promises);
-      const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+      const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0));
 
       // Calculate Priority Score (Deterministic)
       let score = 0;
@@ -544,4 +614,352 @@ export function classifyInvoiceCategory(
   }
 
   return 'ACTIVE';
+}
+
+/**
+ * Reconciles payment promises against verified payment events.
+ *
+ * Rules:
+ * 1. An invoice settled in full (outstanding <= 0 or isFullySettled) fulfills all remaining pending/active promises for that invoice.
+ * 2. Partial payments allocate cumulative confirmed funds sequentially to pending promises ordered by promisedDate ASC, detectedAt ASC, id ASC.
+ * 3. A promise is fulfilled only if unallocated cumulative funds cover the full promised amount.
+ * 4. Promises belonging to other invoices, customers, or workspaces are completely untouched.
+ */
+export function reconcilePromisesWithPayment(
+  promises: PaymentPromise[],
+  invoiceId: string,
+  newCumulativePaid: number,
+  isFullySettled: boolean
+): { updatedPromises: PaymentPromise[]; newlyFulfilledIds: string[] } {
+  const newlyFulfilledIds: string[] = [];
+
+  if (isFullySettled) {
+    const updatedPromises = promises.map((p) => {
+      if (p.invoiceId === invoiceId && (p.status === 'ACTIVE' || p.status === 'pending')) {
+        newlyFulfilledIds.push(p.id);
+        return {
+          ...p,
+          status: 'FULFILLED' as const,
+        };
+      }
+      return p;
+    });
+    return { updatedPromises, newlyFulfilledIds };
+  }
+
+  // Calculate cumulative funds already consumed by fulfilled promises on this invoice
+  const fulfilledConsumed = promises
+    .filter((p) => p.invoiceId === invoiceId && (p.status === 'FULFILLED' || p.status === 'fulfilled'))
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+  let availableFunds = Math.max(0, newCumulativePaid - fulfilledConsumed);
+
+  // Sequential evaluation of pending commitments
+  const pendingForInvoice = promises
+    .filter((p) => p.invoiceId === invoiceId && (p.status === 'ACTIVE' || p.status === 'pending'))
+    .sort((a, b) => {
+      const dateCmp = (a.promisedDate || '').localeCompare(b.promisedDate || '');
+      if (dateCmp !== 0) return dateCmp;
+      const detCmp = (a.detectedAt || '').localeCompare(b.detectedAt || '');
+      if (detCmp !== 0) return detCmp;
+      return (a.id || '').localeCompare(b.id || '');
+    });
+
+  const fulfillSet = new Set<string>();
+  for (const prom of pendingForInvoice) {
+    const promAmt = Number(prom.amount);
+    if (availableFunds >= promAmt) {
+      fulfillSet.add(prom.id);
+      newlyFulfilledIds.push(prom.id);
+      availableFunds -= promAmt;
+    } else {
+      // Unallocated funds cannot satisfy this commitment; stop sequential allocation
+      break;
+    }
+  }
+
+  const updatedPromises = promises.map((p) => {
+    if (fulfillSet.has(p.id)) {
+      return {
+        ...p,
+        status: 'FULFILLED' as const,
+      };
+    }
+    return p;
+  });
+
+  return { updatedPromises, newlyFulfilledIds };
+}
+
+/**
+ * Computes a grounded, deterministic Customer Payment Reliability Assessment.
+ *
+ * Rules:
+ * 1. Only verified and confirmed transactions count (invoices with paid status or confirmed paidAmount > 0).
+ * 2. Unverified claims (CLAIMED) and rejected claims do not count as paid or on-time.
+ * 3. Open billing disputes are tracked transparently but not treated as customer unreliability.
+ * 4. Promises within grace period (promisedDate >= today) are not marked missed.
+ * 5. Requires at least 2 completed events (settled invoices or resolved promises) for a numerical score;
+ *    otherwise returns neutral tier 'INSUFFICIENT_HISTORY' with score: null.
+ * 6. Repeated evaluations on the same immutable data produce the exact same deterministic score and factors.
+ * 7. Never mutates invoice balances, ledgers, or promise statuses.
+ */
+export function computeCustomerPaymentReliability(
+  customer: Customer,
+  invoices: Invoice[] = [],
+  promises: PaymentPromise[] = [],
+  todayStr?: string
+): CustomerReliabilityAssessment {
+  const now = todayStr || new Date().toISOString().split('T')[0];
+
+  // 1. Filter and deduplicate invoices belonging strictly to this customer
+  const custInvoicesMap = new Map<string, Invoice>();
+  invoices.forEach((inv) => {
+    const isCust =
+      (inv.customerId && customer.id && inv.customerId === customer.id) ||
+      (inv.customerName && customer.name && inv.customerName.trim().toLowerCase() === customer.name.trim().toLowerCase());
+    if (isCust && inv.status !== 'cancelled' && inv.status !== 'void' && inv.status !== 'draft') {
+      custInvoicesMap.set(inv.id, inv);
+    }
+  });
+  const custInvoices = Array.from(custInvoicesMap.values());
+
+  // 2. Filter and deduplicate promises belonging strictly to this customer
+  const custPromisesMap = new Map<string, PaymentPromise>();
+  promises.forEach((p) => {
+    const matchesId = Boolean(p.customerId && customer.id && p.customerId === customer.id);
+    const matchesInv = custInvoicesMap.has(p.invoiceId);
+    if (matchesId || matchesInv) {
+      custPromisesMap.set(p.id, p);
+    }
+  });
+  const custPromises = Array.from(custPromisesMap.values());
+
+  // 3. Analyze Settled Invoices for Punctuality
+  let settledInvoicesCount = 0;
+  let onTimePaymentsCount = 0;
+  let latePaymentsCount = 0;
+  let totalLatenessDays = 0;
+  let disputedInvoicesCount = 0;
+  let totalOutstanding = 0;
+
+  custInvoices.forEach((inv) => {
+    const isDisputed = inv.status === 'disputed';
+    if (isDisputed) disputedInvoicesCount++;
+
+    const outstanding = inv.outstandingAmount !== undefined
+      ? inv.outstandingAmount
+      : Math.max(0, inv.amount - (inv.paidAmount || 0));
+
+    if (isCollectibleStatus(inv.status)) {
+      totalOutstanding += outstanding;
+    }
+
+    // Only confirmed paid or partially paid counts (unverified CLAIMED does NOT count)
+    const isPaid = inv.status === 'paid';
+    const hasConfirmedPaid = (inv.paidAmount || 0) > 0 && inv.paymentClaimStatus !== 'CLAIMED';
+
+    if (isPaid || hasConfirmedPaid) {
+      settledInvoicesCount++;
+      const dueDate = inv.dueDate || '';
+      const paidDate = inv.paidDate || '';
+
+      let isLate = false;
+      let delayDays = 0;
+
+      if (paidDate && dueDate) {
+        if (paidDate > dueDate) {
+          isLate = true;
+          delayDays = Math.max(1, Math.round((new Date(paidDate).getTime() - new Date(dueDate).getTime()) / 86400000));
+        }
+      } else if (inv.daysOverdue > 0 && !isPaid) {
+        isLate = true;
+        delayDays = inv.daysOverdue;
+      }
+
+      if (isLate) {
+        latePaymentsCount++;
+        totalLatenessDays += delayDays;
+      } else {
+        onTimePaymentsCount++;
+      }
+    }
+  });
+
+  const avgPaymentDelayDays = latePaymentsCount > 0
+    ? Math.round(totalLatenessDays / latePaymentsCount)
+    : 0;
+
+  // 4. Analyze Promises
+  let fulfilledPromisesCount = 0;
+  let missedPromisesCount = 0;
+  let activePromisesCount = 0;
+
+  custPromises.forEach((p) => {
+    const isFulfilled = p.status === 'FULFILLED' || p.status === 'fulfilled';
+    const isMissed =
+      p.status === 'BROKEN' ||
+      p.status === 'missed' ||
+      ((p.status === 'ACTIVE' || p.status === 'pending') && p.promisedDate < now);
+    const isActive = (p.status === 'ACTIVE' || p.status === 'pending') && p.promisedDate >= now;
+
+    if (isFulfilled) {
+      fulfilledPromisesCount++;
+    } else if (isMissed) {
+      missedPromisesCount++;
+    } else if (isActive) {
+      activePromisesCount++;
+    }
+  });
+
+  const totalObservations = settledInvoicesCount + fulfilledPromisesCount + missedPromisesCount;
+  const primaryFactors: string[] = [];
+
+  // 5. Check Insufficient History Threshold (< 2 observations)
+  if (totalObservations < 2) {
+    if (custInvoices.length === 0) {
+      primaryFactors.push('No invoice or payment history recorded for this customer.');
+    } else {
+      primaryFactors.push(`Only ${totalObservations} completed transaction observation(s) on record.`);
+      primaryFactors.push('Neutral score assigned: minimum 2 completed observations required.');
+    }
+    if (disputedInvoicesCount > 0) {
+      primaryFactors.push(`${disputedInvoicesCount} billing dispute under review (neutral; excluded from penalty).`);
+    }
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      company: customer.company,
+      score: null,
+      tier: 'INSUFFICIENT_HISTORY',
+      tierLabel: 'Insufficient History',
+      tierColor: 'slate',
+      totalObservations,
+      settledInvoicesCount,
+      onTimePaymentsCount,
+      latePaymentsCount,
+      avgPaymentDelayDays,
+      fulfilledPromisesCount,
+      missedPromisesCount,
+      activePromisesCount,
+      disputedInvoicesCount,
+      totalOutstanding,
+      primaryFactors,
+      recommendedAction: 'Standard courteous invoicing and initial payment relationship building.',
+    };
+  }
+
+  // 6. Compute Deterministic Scoring
+  // Punctuality Subscore (0 to 100)
+  let punctualityScore: number | null = null;
+  if (settledInvoicesCount > 0) {
+    const onTimeRate = onTimePaymentsCount / settledInvoicesCount;
+    const latenessFactor = Math.max(0, 1 - (avgPaymentDelayDays / 60));
+    punctualityScore = Math.round((onTimeRate * 70) + (latenessFactor * 30));
+    primaryFactors.push(
+      `${onTimePaymentsCount} of ${settledInvoicesCount} verified invoices settled on time (${Math.round(onTimeRate * 100)}%)`
+    );
+    if (latePaymentsCount > 0) {
+      primaryFactors.push(`Average settlement delay when late: ${avgPaymentDelayDays} days`);
+    }
+  }
+
+  // Promise Subscore (0 to 100)
+  let promiseScore: number | null = null;
+  const totalCompletedPromises = fulfilledPromisesCount + missedPromisesCount;
+  if (totalCompletedPromises > 0) {
+    const promiseFulfillmentRate = fulfilledPromisesCount / totalCompletedPromises;
+    promiseScore = Math.round(promiseFulfillmentRate * 100);
+    primaryFactors.push(
+      `${fulfilledPromisesCount} of ${totalCompletedPromises} payment commitments fulfilled (${Math.round(promiseFulfillmentRate * 100)}%)`
+    );
+    if (missedPromisesCount > 0) {
+      primaryFactors.push(`⚠ ${missedPromisesCount} missed payment commitment deadline(s) on record`);
+    }
+  } else {
+    primaryFactors.push('No payment commitments requested or required to date');
+  }
+
+  // Composite Calculation
+  let finalScore: number;
+  if (punctualityScore !== null && promiseScore !== null) {
+    finalScore = Math.round((punctualityScore * 0.6) + (promiseScore * 0.4));
+  } else if (punctualityScore !== null) {
+    finalScore = punctualityScore;
+  } else if (promiseScore !== null) {
+    finalScore = promiseScore;
+  } else {
+    finalScore = 50;
+  }
+
+  finalScore = Math.max(0, Math.min(100, finalScore));
+
+  if (disputedInvoicesCount > 0) {
+    primaryFactors.push(
+      `${disputedInvoicesCount} active billing dispute under review (neutral; not penalized in reliability score)`
+    );
+  }
+
+  // Determine Qualitative Tier
+  let tier: ReliabilityTier;
+  let tierLabel: string;
+  let tierColor: 'emerald' | 'amber' | 'rose' | 'slate';
+  let recommendedAction: string;
+
+  if (finalScore >= 80) {
+    tier = 'RELIABLE';
+    tierLabel = 'High Reliability';
+    tierColor = 'emerald';
+    recommendedAction = 'Eligible for extended commercial terms and automated courteous follow-up.';
+  } else if (finalScore >= 50) {
+    tier = 'MODERATE';
+    tierLabel = 'Moderate Reliability';
+    tierColor = 'amber';
+    recommendedAction = 'Structured reminders required; confirm invoice receipt 3 days before due date.';
+  } else {
+    tier = 'ELEVATED';
+    tierLabel = 'Elevated Default Risk';
+    tierColor = 'rose';
+    recommendedAction = 'High attention: secure firm commitment dates, require milestone deposits, escalate to phone.';
+  }
+
+  return {
+    customerId: customer.id,
+    customerName: customer.name,
+    company: customer.company,
+    score: finalScore,
+    tier,
+    tierLabel,
+    tierColor,
+    totalObservations,
+    settledInvoicesCount,
+    onTimePaymentsCount,
+    latePaymentsCount,
+    avgPaymentDelayDays,
+    fulfilledPromisesCount,
+    missedPromisesCount,
+    activePromisesCount,
+    disputedInvoicesCount,
+    totalOutstanding,
+    primaryFactors,
+    recommendedAction,
+  };
+}
+
+/**
+ * Computes portfolio-wide customer reliability map.
+ */
+export function computePortfolioCustomerReliability(
+  customers: Customer[] = [],
+  invoices: Invoice[] = [],
+  promises: PaymentPromise[] = [],
+  todayStr?: string
+): Map<string, CustomerReliabilityAssessment> {
+  const result = new Map<string, CustomerReliabilityAssessment>();
+  for (const c of customers) {
+    const assessment = computeCustomerPaymentReliability(c, invoices, promises, todayStr);
+    result.set(c.id, assessment);
+  }
+  return result;
 }

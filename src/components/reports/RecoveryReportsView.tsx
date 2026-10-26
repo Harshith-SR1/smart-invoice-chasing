@@ -9,6 +9,7 @@ import {
   Eye,
   FileText,
   Inbox,
+  Clock,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../layout/PageHeader';
@@ -29,22 +30,78 @@ export const RecoveryReportsView: React.FC = () => {
   };
 
   const handleExportPDF = () => {
-    showToast('Exporting Recovery Audit Report as PDF...', 'info');
-    setTimeout(() => {
-      showToast(`Downloaded ${reportSummary.month}_Recovery_Report.pdf!`, 'success');
-    }, 1000);
+    showToast(`Opening print dialog for ${reportSummary.month} ${reportSummary.year} Recovery Audit Report...`, 'info');
+    if (typeof window !== 'undefined') {
+      window.print();
+    }
   };
 
   const handleExportCSV = () => {
-    const headers = 'Invoice,Customer,Amount,Reminders Sent,Days Overdue,Last Response,Recommendation\n';
-    const rows = reportSummary.unrecoveredAccounts
-      .map(
-        (a) =>
-          `${a.invoiceNumber},"${a.customerName}",${a.amount},${a.remindersCount},${a.daysOverdue},"${a.lastResponse}","${a.recommendation}"`
-      )
-      .join('\n');
+    const rate = reportSummary.promisesDetected > 0
+      ? Math.min(100, Math.round((reportSummary.promisesFulfilled / reportSummary.promisesDetected) * 100))
+      : 0;
 
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const b = reportSummary.agingBreakdown || {
+      notDue: { count: 0, amount: 0 },
+      days1_7: { count: 0, amount: 0 },
+      days8_30: { count: 0, amount: 0 },
+      days31_60: { count: 0, amount: 0 },
+      days61_90: { count: 0, amount: 0 },
+      days90Plus: { count: 0, amount: 0 },
+      totalCollectible: reportSummary.totalOutstanding,
+    };
+
+    const lines: string[] = [];
+
+    // 1. Report Header Metadata
+    lines.push('# SMART INVOICE RECOVERY AUDIT REPORT');
+    lines.push(`# Workspace: "${workspace.businessName || 'Default Workspace'}"`);
+    lines.push(`# Reporting Period: ${reportSummary.month} ${reportSummary.year}`);
+    lines.push(`# Generated At: ${new Date().toISOString()}`);
+    lines.push(`# Currency: ${currencySymbol}`);
+    lines.push('');
+
+    // 2. Executive KPI Summary
+    lines.push('--- EXECUTIVE SUMMARY ---');
+    lines.push('Metric,Value');
+    lines.push(`"Cash Recovered (${reportSummary.month})",${reportSummary.totalRecovered}`);
+    lines.push(`"Total Confirmed Cash (Portfolio)",${reportSummary.totalPortfolioRecovered !== undefined ? reportSummary.totalPortfolioRecovered : reportSummary.totalRecovered}`);
+    lines.push(`"Outstanding Collectible Receivables",${reportSummary.totalOutstanding}`);
+    lines.push(`"Reminders Dispatched",${reportSummary.remindersSent}`);
+    lines.push(`"Customer Replies Received",${reportSummary.repliesReceived}`);
+    lines.push(`"Payment Promises Detected",${reportSummary.promisesDetected}`);
+    lines.push(`"Payment Promises Fulfilled",${reportSummary.promisesFulfilled}`);
+    lines.push(`"Promise Fulfillment Rate",${rate}%`);
+    lines.push(`"Human Escalations",${reportSummary.escalatedCount}`);
+    lines.push('');
+
+    // 3. Receivables Aging Breakdown
+    lines.push('--- RECEIVABLES AGING BREAKDOWN ---');
+    lines.push('Aging Interval,Invoice Count,Outstanding Balance');
+    lines.push(`"Current (Not Due)",${b.notDue.count},${b.notDue.amount}`);
+    lines.push(`"1–7 Days Overdue",${b.days1_7.count},${b.days1_7.amount}`);
+    lines.push(`"8–30 Days Overdue",${b.days8_30.count},${b.days8_30.amount}`);
+    lines.push(`"31–60 Days Overdue",${b.days31_60.count},${b.days31_60.amount}`);
+    lines.push(`"61–90 Days Overdue",${b.days61_90.count},${b.days61_90.amount}`);
+    lines.push(`"90+ Days Overdue",${b.days90Plus.count},${b.days90Plus.amount}`);
+    lines.push(`"Total Collectible Outstanding",${b.notDue.count + b.days1_7.count + b.days8_30.count + b.days31_60.count + b.days61_90.count + b.days90Plus.count},${b.totalCollectible}`);
+    lines.push('');
+
+    // 4. Itemized Unrecovered Invoices
+    lines.push('--- ITEMIZED UNRECOVERED ACCOUNTS ---');
+    lines.push('Invoice #,Customer Name,Status,Original Amount,Confirmed Paid,Outstanding Balance,Days Overdue,Reminders Sent,Last Response,Recommendation');
+    if (reportSummary.unrecoveredAccounts.length === 0) {
+      lines.push('None,None,None,0,0,0,0,0,"No accounts flagged for repeated follow-up","N/A"');
+    } else {
+      reportSummary.unrecoveredAccounts.forEach((a) => {
+        lines.push(
+          `${a.invoiceNumber},"${a.customerName}","${a.status || 'overdue'}",${a.originalAmount !== undefined ? a.originalAmount : a.amount},${a.paidAmount || 0},${a.amount},${a.daysOverdue},${a.remindersCount},"${a.lastResponse.replace(/"/g, '""')}","${a.recommendation}"`
+        );
+      });
+    }
+
+    const csvContent = lines.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -52,7 +109,7 @@ export const RecoveryReportsView: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Exported Recovery Report CSV!', 'success');
+    showToast(`Exported ${reportSummary.month} ${reportSummary.year} Recovery Report CSV!`, 'success');
   };
 
   const targetReportInv = selectedReportInvoice
@@ -148,6 +205,65 @@ export const RecoveryReportsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Canonical Aging Breakdown */}
+      {reportSummary.agingBreakdown && (
+        <div className="p-6 rounded-3xl bg-slate-950 border border-slate-800 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4 text-emerald-400" />
+                Receivables Aging Breakdown
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Authoritative distribution of {formatMoney(reportSummary.totalOutstanding)} collectible receivables across aging intervals.
+              </p>
+            </div>
+            <div className="text-left sm:text-right">
+              <span className="text-[10px] font-mono uppercase text-slate-500 font-bold">Total Collectible Outstanding</span>
+              <p className="text-sm font-black font-mono text-emerald-400">{formatMoney(reportSummary.agingBreakdown.totalCollectible)}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-slate-400 font-semibold">Not Due</span>
+              <p className="text-base font-black font-mono text-white mt-1">{formatMoney(reportSummary.agingBreakdown.notDue.amount)}</p>
+              <span className="text-[10px] text-slate-500 mt-1">{reportSummary.agingBreakdown.notDue.count} invoice{reportSummary.agingBreakdown.notDue.count === 1 ? '' : 's'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-teal-950/20 border border-teal-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-teal-400 font-semibold">1–7 Days</span>
+              <p className="text-base font-black font-mono text-white mt-1">{formatMoney(reportSummary.agingBreakdown.days1_7.amount)}</p>
+              <span className="text-[10px] text-teal-400/80 mt-1">{reportSummary.agingBreakdown.days1_7.count} invoice{reportSummary.agingBreakdown.days1_7.count === 1 ? '' : 's'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-amber-400 font-semibold">8–30 Days</span>
+              <p className="text-base font-black font-mono text-white mt-1">{formatMoney(reportSummary.agingBreakdown.days8_30.amount)}</p>
+              <span className="text-[10px] text-amber-400/80 mt-1">{reportSummary.agingBreakdown.days8_30.count} invoice{reportSummary.agingBreakdown.days8_30.count === 1 ? '' : 's'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-orange-950/20 border border-orange-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-orange-400 font-semibold">31–60 Days</span>
+              <p className="text-base font-black font-mono text-white mt-1">{formatMoney(reportSummary.agingBreakdown.days31_60.amount)}</p>
+              <span className="text-[10px] text-orange-400/80 mt-1">{reportSummary.agingBreakdown.days31_60.count} invoice{reportSummary.agingBreakdown.days31_60.count === 1 ? '' : 's'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-rose-950/20 border border-rose-400/30 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-rose-300 font-semibold">61–90 Days</span>
+              <p className="text-base font-black font-mono text-white mt-1">{formatMoney(reportSummary.agingBreakdown.days61_90.amount)}</p>
+              <span className="text-[10px] text-rose-300/80 mt-1">{reportSummary.agingBreakdown.days61_90.count} invoice{reportSummary.agingBreakdown.days61_90.count === 1 ? '' : 's'}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500 flex flex-col justify-between">
+              <span className="text-[10px] font-mono uppercase text-rose-400 font-bold">90+ Days</span>
+              <p className="text-base font-black font-mono text-rose-400 mt-1">{formatMoney(reportSummary.agingBreakdown.days90Plus.amount)}</p>
+              <span className="text-[10px] text-rose-400/80 mt-1">{reportSummary.agingBreakdown.days90Plus.count} invoice{reportSummary.agingBreakdown.days90Plus.count === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invoices With Repeated Follow-ups */}
       <div className="p-6 rounded-3xl bg-slate-950 border border-slate-800 space-y-4">

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { accountService, isUuid } from '../../services/accountService';
 import {
   Check,
   Copy,
@@ -41,21 +42,48 @@ export default function WorkspacePage() {
     setTimeout(() => setCopiedId(false), 2000);
   };
 
-  const handleSaveWorkspace = (e: React.FormEvent) => {
+  const handleSaveWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setTimeout(() => {
-      setWorkspace({
+    try {
+      const updated = {
         ...workspace,
         businessName,
         businessType,
         businessEmail,
         country,
         currency,
-      });
+      };
+
+      if (isUuid(workspace.id) && workspace.id !== 'ws-default') {
+        const res = await accountService.updateWorkspace(workspace.id, {
+          businessName,
+          businessType,
+          businessEmail,
+          country,
+          currency,
+          businessPhone: phone,
+          website,
+          address,
+          city,
+          state,
+          postalCode,
+          timezone,
+        });
+
+        if (!res.success) {
+          showToast(res.error || 'Failed to persist workspace in database.', 'error');
+          return;
+        }
+      }
+
+      setWorkspace(updated);
+      showToast('Workspace business settings saved and persisted successfully!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save workspace.', 'error');
+    } finally {
       setIsSaving(false);
-      showToast('Workspace business settings saved successfully!', 'success');
-    }, 600);
+    }
   };
 
   return (

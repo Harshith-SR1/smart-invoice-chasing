@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import {
   Building2,
   Bot,
@@ -17,6 +17,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '../layout/PageHeader';
+import { accountService, isUuid } from '../../services/accountService';
 
 const SettingsViewContent: React.FC = () => {
   const searchParams = useSearchParams();
@@ -25,9 +26,48 @@ const SettingsViewContent: React.FC = () => {
 
   type TabType = 'business' | 'ai' | 'collection' | 'autonomy' | 'notifications' | 'email' | 'security' | 'preferences';
 
-  const [activeTab, setActiveTab] = useState<TabType>(
-    initialTabParam === 'ai' ? 'ai' : 'business'
-  );
+  const resolveTab = (param: string | null): TabType => {
+    if (!param) return 'business';
+    const lower = param.toLowerCase();
+    if (lower === 'ai' || lower === 'ai-rules' || lower === 'rules') return 'ai';
+    if (lower === 'collection' || lower === 'cadence') return 'collection';
+    if (lower === 'autonomy') return 'autonomy';
+    if (lower === 'notifications') return 'notifications';
+    if (lower === 'email') return 'email';
+    if (lower === 'security') return 'security';
+    if (lower === 'preferences') return 'preferences';
+    if (lower === 'business') return 'business';
+    return 'business';
+  };
+
+  const [activeTab, setActiveTab] = useState<TabType>(resolveTab(initialTabParam));
+
+  // Sync state if URL query param changes
+  useEffect(() => {
+    if (initialTabParam) {
+      setActiveTab(resolveTab(initialTabParam));
+    }
+  }, [initialTabParam]);
+
+  // Support browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      setActiveTab(resolveTab(tab));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleTabChange = (tabId: TabType) => {
+    setActiveTab(tabId);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tabId);
+      window.history.replaceState({}, '', url.toString());
+    }
+  };
 
   // Form states
   const [businessName, setBusinessName] = useState(workspace.businessName);
@@ -54,12 +94,11 @@ const SettingsViewContent: React.FC = () => {
 
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setTimeout(() => {
-      setWorkspace({ ...workspace, businessName, currency, businessEmail });
-      setAutomationRules({
+    try {
+      const updatedRules = {
         ...automationRules,
         enableAutoFollowup: aiActive,
         communicationTone: tone as any,
@@ -68,10 +107,39 @@ const SettingsViewContent: React.FC = () => {
         postDueScheduleDays: [Number(firstOverdue), Number(secondOverdue)],
         humanEscalationThresholdDays: Number(finalEscalation),
         autoStopOnPromise: autoStopPromise,
-      });
+      };
+
+      const updatedWorkspace = {
+        ...workspace,
+        businessName,
+        currency,
+        businessEmail,
+      };
+
+      if (isUuid(workspace.id) && workspace.id !== 'ws-default') {
+        const [rulesRes, wsRes] = await Promise.all([
+          accountService.saveAutomationRules(workspace.id, updatedRules),
+          accountService.updateWorkspace(workspace.id, {
+            businessName,
+            currency,
+            businessEmail,
+          }),
+        ]);
+
+        if (!rulesRes.success || !wsRes.success) {
+          showToast(rulesRes.error || wsRes.error || 'Failed to persist settings.', 'error');
+          return;
+        }
+      }
+
+      setWorkspace(updatedWorkspace);
+      setAutomationRules(updatedRules);
+      showToast('Settings saved and persisted to database successfully!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save settings.', 'error');
+    } finally {
       setIsSaving(false);
-      showToast('Settings saved successfully across all configuration modules!', 'success');
-    }, 500);
+    }
   };
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
@@ -98,7 +166,7 @@ const SettingsViewContent: React.FC = () => {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
               activeTab === tab.id
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-md'

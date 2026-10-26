@@ -74,14 +74,21 @@ export const ImportDataView: React.FC = () => {
     }
   };
 
-  const handleProceedToAnalysis = () => {
+  const handleProceedToAnalysis = async () => {
     if (parseResult && parseResult.validCount > 0) {
       const validRows = parseResult.rows
         .filter((r) => r.errors.length === 0 && r.parsed)
         .map((r) => r.parsed!);
 
-      handleImportData(validRows, parseResult.fileName, parseResult.batchId, 'update');
-      showToast(`Imported ${validRows.length} real invoices into workspace!`, 'success');
+      setIsParsing(true);
+      try {
+        await handleImportData(validRows, parseResult.fileName, parseResult.batchId, 'update');
+        showToast(`Imported ${validRows.length} real invoices into workspace!`, 'success');
+      } catch (err: any) {
+        showToast(err?.message || 'Error persisting imported invoices.', 'error');
+      } finally {
+        setIsParsing(false);
+      }
     }
     setActiveScreen('ai_processing');
   };

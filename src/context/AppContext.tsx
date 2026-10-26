@@ -12,6 +12,8 @@ import {
   Workspace,
   AiDecision,
   InvoiceStatus,
+  isCollectibleStatus,
+  ImportInvoicesBatchResult,
 } from '../types';
 import {
   defaultAutomationRules,
@@ -23,7 +25,7 @@ import {
 } from '../lib/mockData';
 import { createClient } from '../lib/supabase/client';
 import { accountService, isUuid } from '../services/accountService';
-import { evaluateInvoiceDecision, getWhyUnpaidDiagnosis, classifyInvoiceCategory } from '../lib/decisionEngine';
+import { evaluateInvoiceDecision, getWhyUnpaidDiagnosis, classifyInvoiceCategory, reconcilePromisesWithPayment } from '../lib/decisionEngine';
 
 interface AppContextType {
   user: User | null;
@@ -53,18 +55,29 @@ interface AppContextType {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   isLoading: boolean;
+  loadError: string | null;
   
   // Actions
-  handleImportData: (newRecords: any[], fileName?: string, batchId?: string, duplicatePolicy?: 'update' | 'skip') => void;
+  handleImportData: (newRecords: any[], fileName?: string, batchId?: string, duplicatePolicy?: 'update' | 'skip') => Promise<ImportInvoicesBatchResult>;
   handleResumeAllCollections: () => void;
   handleResumeInvoiceCollection: (invoiceId: string) => void;
   handleMarkAsPaid: (invoiceId: string, paidAmount?: number) => void;
   handleRecordPayment: (invoiceId: string, paidAmount: number, isFull?: boolean) => void;
   handleClaimPayment: (invoiceId: string, claimedAmount: number, note?: string) => void;
-  handleVerifyClaimedPayment: (invoiceId: string, isVerified: boolean) => void;
+  handleVerifyClaimedPayment: (
+    invoiceId: string,
+    isVerified: boolean,
+    options?: {
+      verifiedAmount?: number;
+      transactionReference?: string;
+      rejectionReason?: string;
+    }
+  ) => Promise<boolean>;
   handleApproveDecision: (decisionId: string) => void;
   handleExecuteDecision: (decisionId: string) => void;
   handleDismissDecision: (decisionId: string) => void;
+  handleRecordDispute: (invoiceId: string, reason: string) => Promise<boolean>;
+  handleResolveDispute: (invoiceId: string, resolutionNote?: string) => Promise<boolean>;
   handleCreatePromise: (invoiceId: string, amount: number, promisedDate: string, quoteText: string) => void;
   handleEscalateInvoice: (invoiceId: string) => void;
   handleSendAiMessage: (invoiceId: string, updatedSubject?: string, updatedBody?: string) => void;
@@ -99,14 +112,26 @@ export function buildRecoveryReportSummary(
       month: monthName,
       year: yearNum,
       totalRecovered: 0,
+      totalPortfolioRecovered: 0,
       totalOutstanding: 0,
       chasedInvoicesCount: 0,
       remindersSent: 0,
       repliesReceived: 0,
-      promisesDetected: 0,
-      promisesFulfilled: 0,
+      promisesDetected: promises.length,
+      promisesFulfilled: promises.filter(
+        (p) => p.status === 'FULFILLED' || p.status === 'fulfilled'
+      ).length,
       escalatedCount: 0,
       unrecoveredAccounts: [],
+      agingBreakdown: {
+        notDue: { count: 0, amount: 0 },
+        days1_7: { count: 0, amount: 0 },
+        days8_30: { count: 0, amount: 0 },
+        days31_60: { count: 0, amount: 0 },
+        days61_90: { count: 0, amount: 0 },
+        days90Plus: { count: 0, amount: 0 },
+        totalCollectible: 0,
+      },
       aiExecutiveSummary: isRealWorkspace
         ? 'No invoice records found in this workspace. Import invoices or connect your accounting integration to generate recovery intelligence.'
         : 'Demo Workspace: No invoices loaded.',
@@ -114,16 +139,40 @@ export function buildRecoveryReportSummary(
   }
 
   // 1. Recovered Revenue: Strictly verified payments
-  const totalRecovered = invoices.reduce((sum, inv) => {
+  // Calculate total confirmed payments across the entire portfolio
+  const totalPortfolioRecovered = invoices.reduce((sum, inv) => {
     const paid = inv.paidAmount !== undefined ? inv.paidAmount : (inv.status === 'paid' ? inv.amount : 0);
     return sum + paid;
   }, 0);
 
-  // 2. Outstanding Balance: Authoritative balance across unpaid/partially paid invoices
+  // Period-aware cash recovered: Filter by invoices paid in the current reporting month/year if paidDate exists
+  let periodRecovered = 0;
+  let hasPeriodPayments = false;
+  invoices.forEach((inv) => {
+    const paid = inv.paidAmount !== undefined ? inv.paidAmount : (inv.status === 'paid' ? inv.amount : 0);
+    if (paid > 0 && inv.paidDate) {
+      try {
+        const pDate = new Date(inv.paidDate);
+        if (!isNaN(pDate.getTime())) {
+          const pMonth = pDate.toLocaleString('en-US', { month: 'long' });
+          const pYear = pDate.getFullYear();
+          if (pMonth === monthName && pYear === yearNum) {
+            periodRecovered += paid;
+            hasPeriodPayments = true;
+          }
+        }
+      } catch {
+        // Fall back gracefully
+      }
+    }
+  });
+  const totalRecovered = hasPeriodPayments ? periodRecovered : totalPortfolioRecovered;
+
+  // 2. Outstanding Balance: Authoritative balance across unpaid/partially paid collectible invoices
   const totalOutstanding = invoices
-    .filter((inv) => inv.status !== 'paid')
+    .filter((inv) => isCollectibleStatus(inv.status))
     .reduce((sum, inv) => {
-      const out = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+      const out = inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0));
       return sum + out;
     }, 0);
 
@@ -149,15 +198,57 @@ export function buildRecoveryReportSummary(
     (inv) => inv.status === 'escalated' || (inv.remindersSent || 0) >= 5
   ).length;
 
-  // 8. Unrecovered Accounts: unpaid accounts with repeated follow-ups or escalation
+  // 8. Canonical Aging Breakdown: 6 mutually exclusive, exhaustive buckets
+  const collectibleInvoices = invoices.filter((inv) => isCollectibleStatus(inv.status));
+  const agingBreakdown = {
+    notDue: { count: 0, amount: 0 },
+    days1_7: { count: 0, amount: 0 },
+    days8_30: { count: 0, amount: 0 },
+    days31_60: { count: 0, amount: 0 },
+    days61_90: { count: 0, amount: 0 },
+    days90Plus: { count: 0, amount: 0 },
+    totalCollectible: 0,
+  };
+
+  collectibleInvoices.forEach((inv) => {
+    const out = inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0));
+    if (out <= 0) return;
+
+    agingBreakdown.totalCollectible += out;
+    const days = inv.daysOverdue || 0;
+
+    if (days <= 0) {
+      agingBreakdown.notDue.count += 1;
+      agingBreakdown.notDue.amount += out;
+    } else if (days >= 1 && days <= 7) {
+      agingBreakdown.days1_7.count += 1;
+      agingBreakdown.days1_7.amount += out;
+    } else if (days >= 8 && days <= 30) {
+      agingBreakdown.days8_30.count += 1;
+      agingBreakdown.days8_30.amount += out;
+    } else if (days >= 31 && days <= 60) {
+      agingBreakdown.days31_60.count += 1;
+      agingBreakdown.days31_60.amount += out;
+    } else if (days >= 61 && days <= 90) {
+      agingBreakdown.days61_90.count += 1;
+      agingBreakdown.days61_90.amount += out;
+    } else {
+      agingBreakdown.days90Plus.count += 1;
+      agingBreakdown.days90Plus.amount += out;
+    }
+  });
+
+  // 9. Unrecovered Accounts: active collectible accounts with repeated follow-ups or escalation
   const unrecoveredAccounts = invoices
     .filter(
-      (inv) => inv.status !== 'paid' && (inv.outstandingAmount || inv.amount) > 0 && ((inv.remindersSent || 0) >= 3 || inv.status === 'escalated' || inv.status === 'overdue')
+      (inv) => isCollectibleStatus(inv.status) && (inv.outstandingAmount || inv.amount) > 0 && ((inv.remindersSent || 0) >= 3 || inv.status === 'escalated' || inv.status === 'overdue' || inv.status === 'disputed')
     )
     .map((inv) => {
-      const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount;
+      const outstanding = inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0));
       let rec = 'Formal Notice & Phone Outreach';
-      if (inv.status === 'escalated' || (inv.remindersSent || 0) >= 5) {
+      if (inv.status === 'disputed') {
+        rec = 'Billing Dispute Mediation (Automated Reminders Paused)';
+      } else if (inv.status === 'escalated' || (inv.remindersSent || 0) >= 5) {
         rec = 'Direct Founder Call / Legal Escalation';
       } else if (inv.daysOverdue > 60) {
         rec = 'Consolidated Statement Demand';
@@ -168,6 +259,9 @@ export function buildRecoveryReportSummary(
         invoiceNumber: inv.invoiceNumber,
         customerName: inv.customerName,
         amount: outstanding,
+        originalAmount: inv.amount,
+        paidAmount: inv.paidAmount || 0,
+        status: inv.status,
         remindersCount: inv.remindersSent || 0,
         daysOverdue: inv.daysOverdue || 0,
         lastResponse: inv.lastCustomerReply || 'No customer response received yet',
@@ -175,13 +269,14 @@ export function buildRecoveryReportSummary(
       };
     });
 
-  // 9. AI Executive Summary derived strictly from evidence
+  // 10. AI Executive Summary derived strictly from evidence
   const aiExecutiveSummary = `In ${monthName} ${yearNum}, Smart Invoice Chasing tracked ${currencySymbol}${totalRecovered.toLocaleString()} in verified recovered revenue across ${promisesFulfilled} fulfilled payment commitment(s). ${escalatedCount} account(s) have been flagged for human escalation with ${currencySymbol}${totalOutstanding.toLocaleString()} currently outstanding across ${invoices.length} managed invoice(s).`;
 
   return {
     month: monthName,
     year: yearNum,
     totalRecovered,
+    totalPortfolioRecovered,
     totalOutstanding,
     chasedInvoicesCount,
     remindersSent,
@@ -190,6 +285,7 @@ export function buildRecoveryReportSummary(
     promisesFulfilled,
     escalatedCount,
     unrecoveredAccounts,
+    agingBreakdown,
     aiExecutiveSummary,
   };
 }
@@ -201,11 +297,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [workspace, setWorkspace] = useState<Workspace>(initialWorkspace);
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>('landing');
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
-  const [promises, setPromises] = useState<PaymentPromise[]>(initialPaymentPromises);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [promises, setPromises] = useState<PaymentPromise[]>([]);
   const [automationRules, setAutomationRules] = useState<AutomationRules>(defaultAutomationRules);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   const isRealWorkspace = Boolean(user && isUuid(workspace.id) && workspace.id !== 'ws-default');
 
@@ -251,6 +348,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUser(session?.user ?? null);
       if (!session?.user) {
         setIsLoading(false);
+        setInvoices([]);
+        setCustomers([]);
+        setPromises([]);
+        setWorkspace(initialWorkspace);
+        setLoadError(null);
       }
     });
 
@@ -259,6 +361,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Load backend data if available
   useEffect(() => {
+    let isCancelled = false;
+
     async function loadData() {
       if (!user) {
         setIsLoading(false);
@@ -266,20 +370,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       try {
         setIsLoading(true);
+        setLoadError(null);
+
         const ws = await accountService.fetchWorkspace(user?.id);
+        if (isCancelled) return;
         if (ws) setWorkspace(ws);
 
         const targetWsId = ws?.id || workspace.id;
-        const invs = await accountService.fetchInvoices(targetWsId);
-        if (invs) {
-          setInvoices(invs);
+        let invs: Invoice[] = [];
+        if (isUuid(targetWsId) && targetWsId !== 'ws-default') {
+          invs = await accountService.fetchInvoices(targetWsId);
         }
+        if (isCancelled) return;
+        setInvoices(invs || []);
 
-        const custs = await accountService.fetchCustomers(targetWsId);
-        if (custs) setCustomers(custs);
+        let custs: Customer[] = [];
+        if (isUuid(targetWsId) && targetWsId !== 'ws-default') {
+          custs = await accountService.fetchCustomers(targetWsId);
+        }
+        if (isCancelled) return;
+        setCustomers(custs || []);
 
-        const prms = await accountService.fetchPromises(targetWsId);
-        if (prms) {
+        let prms: PaymentPromise[] = [];
+        if (isUuid(targetWsId) && targetWsId !== 'ws-default') {
+          prms = await accountService.fetchPromises(targetWsId);
+        }
+        if (isCancelled) return;
+        if (prms && prms.length > 0) {
           const todayStr = getLocalDateString();
           const evaluatedPromises = prms.map((p) => {
             if ((p.status === 'pending' || p.status === 'ACTIVE') && p.promisedDate < todayStr) {
@@ -288,14 +405,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return p;
           });
           setPromises(evaluatedPromises);
+        } else {
+          setPromises([]);
         }
 
         const rules = await accountService.fetchAutomationRules(targetWsId);
+        if (isCancelled) return;
         if (rules) setAutomationRules(rules);
 
         // Load persisted AI Decisions lifecycle overrides
-        if (isUuid(targetWsId)) {
+        if (isUuid(targetWsId) && targetWsId !== 'ws-default') {
           const dbDecisions = await accountService.fetchDecisions(targetWsId);
+          if (isCancelled) return;
           const overrides: Record<string, { status: AiDecision['status']; executedAt?: string }> = {};
           const dbDecisionMap: Record<string, { id: string; status: string; executedAt?: string }> = {};
 
@@ -323,15 +444,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return evaluateInvoiceDecision(inv, cust, prms || []);
             });
             await accountService.syncDecisions(targetWsId, initialDecs);
+            const freshDecs = await accountService.fetchDecisions(targetWsId);
+            if (!isCancelled && freshDecs && freshDecs.length > 0) {
+              const freshMap: Record<string, { id: string; status: string; executedAt?: string }> = {};
+              for (const d of freshDecs) {
+                freshMap[d.invoiceId] = { id: d.id, status: d.status };
+                freshMap[d.id] = { id: d.id, status: d.status };
+              }
+              setPersistedDbDecisions((prev) => ({ ...prev, ...freshMap }));
+            }
           }
         }
-      } catch (err) {
-        console.warn('Backend load notice (using current state):', err);
+      } catch (err: any) {
+        if (!isCancelled) {
+          console.error('Failed to load workspace data:', err);
+          setLoadError('Failed to load workspace data. Please refresh.');
+          setInvoices([]);
+          setCustomers([]);
+          setPromises([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     }
     loadData();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [user]);
 
   // Derived Decisions for all active invoices
@@ -367,6 +509,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
+    setInvoices([]);
+    setCustomers([]);
+    setPromises([]);
+    setWorkspace(initialWorkspace);
+    setLoadError(null);
     setActiveScreen('landing');
     showToast('Signed out successfully.', 'info');
     if (typeof window !== 'undefined') {
@@ -374,17 +521,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const handleImportData = (
+  const handleImportData = async (
     newRecords: any[],
     fileName: string = 'imported_invoices.csv',
     batchId: string = `IMP-${Date.now()}`,
     duplicatePolicy: 'update' | 'skip' = 'update'
-  ) => {
+  ): Promise<ImportInvoicesBatchResult> => {
     const todayStr = getLocalDateString();
     const now = new Date();
     const currencySymbol = workspace.currency?.includes('INR') || workspace.currency === 'INR' ? '₹' : '$';
+    const isRealWorkspace = isUuid(workspace.id) && workspace.id !== 'ws-default';
 
-    // Map existing invoices by invoice number
+    // 1. Authenticated Database Persistence
+    if (isRealWorkspace) {
+      const batchResult = await accountService.importInvoicesBatch(workspace.id, newRecords, {
+        fileName,
+        batchId,
+        duplicatePolicy,
+      });
+
+      if (!batchResult.success && batchResult.importedCount === 0) {
+        showToast(batchResult.errors[0] || 'Import failed. No invoices were persisted.', 'error');
+        return batchResult;
+      }
+
+      // Re-fetch authoritative records directly from the database to populate real DB UUIDs and balances
+      const [refreshedInvoices, refreshedCustomers, refreshedPromises] = await Promise.all([
+        accountService.fetchInvoices(workspace.id),
+        accountService.fetchCustomers(workspace.id),
+        accountService.fetchPromises(workspace.id),
+      ]);
+
+      setInvoices(refreshedInvoices || []);
+      setCustomers(refreshedCustomers || []);
+      if (refreshedPromises && refreshedPromises.length > 0) {
+        setPromises(refreshedPromises);
+      }
+
+      // Sync AI Decisions for refreshed invoices
+      if (refreshedInvoices && refreshedInvoices.length > 0) {
+        const custMap = new Map<string, Customer>();
+        (refreshedCustomers || []).forEach((c) => custMap.set(c.id, c));
+        const initialDecs = refreshedInvoices.map((inv) => {
+          const cust = custMap.get(inv.customerId);
+          return evaluateInvoiceDecision(inv, cust, refreshedPromises || []);
+        });
+        await accountService.syncDecisions(workspace.id, initialDecs);
+        const dbDecisions = await accountService.fetchDecisions(workspace.id);
+        const dbDecisionMap: Record<string, { id: string; status: string; executedAt?: string }> = {};
+        for (const d of dbDecisions) {
+          dbDecisionMap[d.invoiceId] = { id: d.id, status: d.status };
+          dbDecisionMap[d.id] = { id: d.id, status: d.status };
+        }
+        setPersistedDbDecisions((prev) => ({ ...prev, ...dbDecisionMap }));
+      }
+
+      const msg = `Successfully processed import: ${batchResult.insertedCount} new, ${batchResult.updatedCount} updated, ${batchResult.skippedCount} skipped.`;
+      showToast(msg, 'success');
+      return batchResult;
+    }
+
+    // 2. Fallback for Unauthenticated Preview Mode
     const existingMap = new Map<string, Invoice>();
     invoices.forEach((inv) => existingMap.set(inv.invoiceNumber.toLowerCase().trim(), inv));
 
@@ -515,29 +712,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       processedInvoices.push(newInvoice);
     });
 
-    // Merge with existing state based on duplicate policy
+    let previewInserted = 0;
+    let previewUpdated = 0;
+    let previewSkipped = 0;
+
     setInvoices((prev) => {
       const combined: Invoice[] = [];
       const numMap = new Set<string>();
 
-      // Put newly imported first
       processedInvoices.forEach((inv) => {
-        combined.push(inv);
-        numMap.add(inv.invoiceNumber.toLowerCase().trim());
+        const key = inv.invoiceNumber.toLowerCase().trim();
+        const exists = prev.some((p) => p.invoiceNumber.toLowerCase().trim() === key);
+        if (exists) {
+          if (duplicatePolicy === 'skip') {
+            previewSkipped++;
+          } else {
+            previewUpdated++;
+            combined.push(inv);
+          }
+        } else {
+          previewInserted++;
+          combined.push(inv);
+        }
+        numMap.add(key);
       });
 
-      // Keep previous that weren't overwritten
       prev.forEach((inv) => {
-        if (!numMap.has(inv.invoiceNumber.toLowerCase().trim())) {
+        const key = inv.invoiceNumber.toLowerCase().trim();
+        if (!numMap.has(key)) {
           combined.push(inv);
         } else if (duplicatePolicy === 'skip') {
-          // If skip, keep original
-          const idx = combined.findIndex((c) => c.invoiceNumber.toLowerCase().trim() === inv.invoiceNumber.toLowerCase().trim());
+          const idx = combined.findIndex((c) => c.invoiceNumber.toLowerCase().trim() === key);
           if (idx !== -1) combined[idx] = inv;
+          else combined.push(inv);
         }
       });
 
-      // Re-derive Customers dynamically from active invoices
       const customerMap = new Map<string, {
         id: string;
         name: string;
@@ -603,18 +813,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       setCustomers(updatedCustomers);
-
-      // Invoices and customers state updated; reportSummary automatically re-derives via useMemo
-
-      accountService.importInvoices(workspace.id, combined);
-      accountService.upsertCustomers(workspace.id, updatedCustomers);
       return combined;
     });
 
-    showToast(`Successfully imported ${processedInvoices.length} verified invoice records!`, 'success');
+    showToast(`Imported ${processedInvoices.length} preview invoices!`, 'success');
+    return {
+      success: true,
+      totalRows: newRecords.length,
+      importedCount: previewInserted + previewUpdated,
+      insertedCount: previewInserted,
+      updatedCount: previewUpdated,
+      skippedCount: previewSkipped,
+      rejectedCount: 0,
+      errors: [],
+      rowResults: [],
+      isPreview: true,
+    };
   };
 
-  const handleResumeAllCollections = () => {
+  const handleResumeAllCollections = async () => {
+    // 1. Authenticated DB persistence
+    if (isRealWorkspace) {
+      const res = await accountService.resumeAllOverdueCollections(workspace.id);
+      if (!res.success) {
+        showToast(res.error || 'Failed to resume collections in database.', 'error');
+        return;
+      }
+    }
+
     setInvoices((prev) =>
       prev.map((inv) => {
         if (inv.status === 'overdue') {
@@ -644,7 +870,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Activated AI Chasing for all recommended overdue collections!', 'success');
   };
 
-  const handleResumeInvoiceCollection = (invoiceId: string) => {
+  const handleResumeInvoiceCollection = async (invoiceId: string) => {
+    // 1. Authenticated DB persistence
+    if (isRealWorkspace) {
+      const res = await accountService.resumeInvoiceCollection(workspace.id, invoiceId);
+      if (!res.success) {
+        showToast(res.error || 'Failed to resume invoice collection in database.', 'error');
+        return;
+      }
+    }
+
     setInvoices((prev) =>
       prev.map((inv) => {
         if (inv.id === invoiceId) {
@@ -660,7 +895,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 timestamp: new Date().toISOString(),
                 type: 'reminder_sent',
                 title: 'AI Collection Resumed',
-                description: 'Personalized follow-up message queued and sent.',
+                description: 'Personalized follow-up message queued and sent via AI follow-up engine.',
+                badge: 'AI Chasing',
                 actor: 'ai',
               },
               ...inv.timeline,
@@ -673,13 +909,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Collection resumed for invoice!', 'success');
   };
 
-  // Full / Partial Payment Recording
-  const handleRecordPayment = (invoiceId: string, paymentAmt: number, isFull: boolean = false) => {
+  // Full / Partial Payment Recording with Database Persistence (PMT-001)
+  const handleRecordPayment = async (invoiceId: string, paymentAmt: number, isFull: boolean = false) => {
     let recordedAmt = 0;
     let newOutstanding = 0;
     let isFullySettled = false;
     let targetCustId = '';
 
+    const inv = invoices.find((i) => i.id === invoiceId);
+    if (!inv) return;
+
+    targetCustId = inv.customerId;
+    const prevPaid = inv.paidAmount || 0;
+    recordedAmt = isFull ? (inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount - prevPaid) : paymentAmt;
+
+    if (recordedAmt <= 0) {
+      showToast('Payment amount must be greater than zero.', 'error');
+      return;
+    }
+
+    // 1. Authenticated persistence to Supabase
+    if (isRealWorkspace) {
+      const res = await accountService.recordDirectPayment(workspace.id, invoiceId, recordedAmt, isFull);
+      if (!res.success) {
+        showToast(res.error || 'Failed to record payment in database.', 'error');
+        return;
+      }
+    }
+
+    let cumulativePaid = 0;
     setInvoices((prev) =>
       prev.map((inv) => {
         if (inv.id === invoiceId) {
@@ -687,6 +945,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const prevPaid = inv.paidAmount || 0;
           recordedAmt = isFull ? (inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount - prevPaid) : paymentAmt;
           const totalPaid = prevPaid + recordedAmt;
+          cumulativePaid = totalPaid;
           newOutstanding = Math.max(0, inv.amount - totalPaid);
           isFullySettled = newOutstanding <= 0;
 
@@ -740,22 +999,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    // Fulfill active promises related to this invoice ONLY if payment satisfies promised amount or settles invoice
-    let newlyFulfilledPromisesCount = 0;
-    setPromises((prev) =>
-      prev.map((p) => {
-        if (p.invoiceId === invoiceId && (p.status === 'ACTIVE' || p.status === 'pending')) {
-          if (isFullySettled || recordedAmt >= p.amount) {
-            newlyFulfilledPromisesCount++;
-            return {
-              ...p,
-              status: 'FULFILLED',
-            };
-          }
+    // Fulfill active promises related to this invoice sequentially using cumulative confirmed funds
+    setPromises((prev) => {
+      const { updatedPromises } = reconcilePromisesWithPayment(prev, invoiceId, cumulativePaid, isFullySettled);
+      return updatedPromises;
+    });
+
+    if (isRealWorkspace) {
+      accountService.fetchPromises(workspace.id).then((refreshed) => {
+        if (refreshed && refreshed.length > 0) {
+          setPromises(refreshed);
         }
-        return p;
-      })
-    );
+      });
+    }
 
     // Financial Report Summary is automatically derived via useMemo from invoices and promises (REP-001)
 
@@ -831,43 +1087,158 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Verification or Rejection of Claimed Payment (CLM-001, CLM-002)
-  const handleVerifyClaimedPayment = async (invoiceId: string, isVerified: boolean) => {
+  const handleVerifyClaimedPayment = async (
+    invoiceId: string,
+    isVerified: boolean,
+    options?: {
+      verifiedAmount?: number;
+      transactionReference?: string;
+      rejectionReason?: string;
+    }
+  ): Promise<boolean> => {
     const inv = invoices.find((i) => i.id === invoiceId);
-    if (!inv) return;
+    if (!inv) return false;
 
     // Defect CLM-002: Reject verification when no pending claim exists!
     if (inv.paymentClaimStatus !== 'CLAIMED') {
       showToast('No pending payment claim found for this invoice. Verification cannot proceed without an active claim.', 'error');
-      return;
+      return false;
     }
 
+    const currentOutstanding =
+      inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0));
+
+    let verifiedAmt = options?.verifiedAmount !== undefined ? options.verifiedAmount : currentOutstanding;
+    if (isVerified) {
+      if (verifiedAmt <= 0) {
+        showToast('Verified payment amount must be greater than zero.', 'error');
+        return false;
+      }
+      if (verifiedAmt > currentOutstanding) {
+        showToast(
+          `Verified amount cannot exceed the authoritative outstanding balance of ${inv.currency} ${currentOutstanding.toLocaleString()}.`,
+          'error'
+        );
+        return false;
+      }
+    }
+
+    // 1. Authenticated Supabase Persistence via verifyPaymentClaim (Migration 004 RPC)
+    let resData: any = null;
     if (isUuid(workspace.id) && workspace.id !== 'ws-default') {
-      const res = await accountService.verifyPaymentClaim(workspace.id, invoiceId, isVerified);
+      const res = await accountService.verifyPaymentClaim(workspace.id, invoiceId, isVerified, {
+        verifiedAmount: isVerified ? verifiedAmt : undefined,
+        transactionReference: options?.transactionReference,
+        rejectionReason: options?.rejectionReason,
+      });
+
       if (!res.success) {
         showToast(res.error || 'Failed to verify payment claim in database.', 'error');
-        return;
+        return false;
       }
-      if (isVerified && res.data) {
-        const claimAmount =
-          res.data.claimAmount !== undefined ? res.data.claimAmount : res.data.amountPaid - (inv.paidAmount || 0);
-        handleRecordPayment(
-          invoiceId,
-          claimAmount > 0 ? claimAmount : inv.outstandingAmount || inv.amount,
-          res.data.status === 'paid'
-        );
-        return;
-      }
+      resData = res.data;
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // 2. Authoritative State Updates (Zero duplicate ledger writes)
     if (isVerified) {
-      handleRecordPayment(invoiceId, 0, true);
+      const newPaid = resData?.amountPaid !== undefined ? resData.amountPaid : (inv.paidAmount || 0) + verifiedAmt;
+      const newOutstanding = resData?.outstandingAmount !== undefined ? resData.outstandingAmount : Math.max(0, inv.amount - newPaid);
+      const newStatus = resData?.status || (newOutstanding <= 0 ? 'paid' : 'partially_paid');
+      const isFullySettled = newOutstanding <= 0 || newStatus === 'paid';
+
+      setInvoices((prev) =>
+        prev.map((i) => {
+          if (i.id === invoiceId) {
+            const updatedTimeline = [
+              {
+                id: `evt-claim-ver-${Date.now()}`,
+                invoiceId: i.id,
+                timestamp: new Date().toISOString(),
+                type: (isFullySettled ? 'payment_received' : 'partial_payment_received') as any,
+                title: isFullySettled ? 'Payment Claim Verified & Settled ✅' : `Payment Claim Verified (Partial: ${i.currency} ${verifiedAmt.toLocaleString()}) ✅`,
+                description: `Bank verified receipt of ${i.currency} ${verifiedAmt.toLocaleString()}.${options?.transactionReference ? ` Ref: ${options.transactionReference}` : ''}`,
+                badge: isFullySettled ? 'PAID IN FULL' : `PARTIAL (${i.currency} ${verifiedAmt.toLocaleString()})`,
+                actor: 'user' as const,
+              },
+              ...i.timeline,
+            ];
+
+            return {
+              ...i,
+              paidAmount: newPaid,
+              outstandingAmount: newOutstanding,
+              status: newStatus,
+              paidDate: isFullySettled ? todayStr : i.paidDate,
+              paymentClaimStatus: 'VERIFIED',
+              collectionHealth: isFullySettled ? 100 : 70,
+              healthCategory: isFullySettled ? 'low_risk' : 'medium_risk',
+              nextAction: isFullySettled ? 'Payment confirmed. Chasing stopped.' : `Chase remaining ${i.currency} ${newOutstanding.toLocaleString()}`,
+              timeline: updatedTimeline,
+            };
+          }
+          return i;
+        })
+      );
+
+      // Update Customer Totals
+      if (inv.customerId && verifiedAmt > 0) {
+        setCustomers((prev) =>
+          prev.map((c) => {
+            if (c.id === inv.customerId) {
+              return {
+                ...c,
+                totalPaid: c.totalPaid + verifiedAmt,
+                outstanding: Math.max(0, c.outstanding - verifiedAmt),
+                overdueInvoicesCount: isFullySettled ? Math.max(0, c.overdueInvoicesCount - 1) : c.overdueInvoicesCount,
+              };
+            }
+            return c;
+          })
+        );
+      }
+
+      // Fulfill active promises sequentially based on cumulative confirmed funds
+      setPromises((prev) => {
+        const { updatedPromises } = reconcilePromisesWithPayment(prev, invoiceId, newPaid, isFullySettled);
+        return updatedPromises;
+      });
+
+      if (isRealWorkspace) {
+        accountService.fetchPromises(workspace.id).then((refreshed) => {
+          if (refreshed && refreshed.length > 0) {
+            setPromises(refreshed);
+          }
+        });
+      }
+
+      // If fully settled, update collection decision override to EXECUTED
+      if (isFullySettled) {
+        setDecisionOverrides((prev) => ({
+          ...prev,
+          [invoiceId]: { status: 'EXECUTED' },
+        }));
+      }
+
+      showToast(
+        isFullySettled
+          ? 'Payment claim verified in full! Invoice settled and chasing closed.'
+          : `Payment claim verified: ${inv.currency} ${verifiedAmt.toLocaleString()} credited. Remaining balance: ${inv.currency} ${newOutstanding.toLocaleString()}.`,
+        'success'
+      );
+      return true;
     } else {
+      // Rejection Branch
+      const rejectionNote = options?.rejectionReason || 'Payment claim could not be verified in bank ledger. Collection resumed.';
+
       setInvoices((prev) =>
         prev.map((i) => {
           if (i.id === invoiceId) {
             return {
               ...i,
               paymentClaimStatus: 'REJECTED',
+              paymentClaimNote: rejectionNote,
               nextAction: 'Payment claim unconfirmed in bank. Follow-up resumed.',
               timeline: [
                 {
@@ -876,9 +1247,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   timestamp: new Date().toISOString(),
                   type: 'escalation_triggered',
                   title: 'Payment Claim Rejected ❌',
-                  description: 'Payment claim could not be verified in bank ledger. Collection resumed.',
+                  description: rejectionNote,
                   badge: 'CLAIM REJECTED',
-                  actor: 'user',
+                  actor: 'user' as const,
                 },
                 ...i.timeline,
               ],
@@ -887,7 +1258,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return i;
         })
       );
-      showToast('Payment claim unverified. Collection resumed.', 'error');
+
+      showToast('Payment claim rejected. Collection outreach resumed.', 'error');
+      return true;
     }
   };
 
@@ -898,6 +1271,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (targetDec.status === 'APPROVED') {
       showToast('Decision is already approved.', 'info');
+      return;
+    }
+
+    if (targetDec.action === 'STOP') {
+      showToast('Settled or cancelled invoices do not have actionable collection decisions to approve.', 'info');
       return;
     }
 
@@ -914,7 +1292,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Authenticated Persistence
-    const res = await accountService.saveDecisionStatus(workspace.id, decisionId, 'APPROVED');
+    const dbRecord = persistedDbDecisions[targetDec.invoiceId] || persistedDbDecisions[decisionId];
+    const lookupId = (dbRecord && isUuid(dbRecord.id)) ? dbRecord.id : (isUuid(decisionId) ? decisionId : targetDec.invoiceId);
+    const res = await accountService.saveDecisionStatus(workspace.id, lookupId, 'APPROVED');
     if (!res.success) {
       showToast(res.error || 'Failed to persist decision approval to database.', 'error');
       return;
@@ -944,8 +1324,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isPaid = targetInvoice.status === 'paid' || (targetInvoice.outstandingAmount !== undefined ? targetInvoice.outstandingAmount <= 0 : false);
     const isDisputed = targetInvoice.status === 'disputed';
     const isHeld = (targetInvoice.status as string) === 'held' || (targetInvoice.status as string) === 'on_hold';
+    const isCancelledOrDraft = targetInvoice.status === 'cancelled' || targetInvoice.status === 'void' || targetInvoice.status === 'draft';
     const hasClaimPending = targetInvoice.paymentClaimStatus === 'CLAIMED';
     const isCustomerContact = targetDec.action === 'FOLLOW_UP' || targetDec.action === 'NUDGE' || targetDec.action === 'ESCALATE';
+
+    // Invariant: Cancelled, void, or draft invoices cannot execute automated collection actions
+    if (isCancelledOrDraft) {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} is ${targetInvoice.status}. Chasing action cannot be executed.`, 'error');
+      return;
+    }
+
+    // Invariant: Action STOP cannot execute outreach
+    if (targetDec.action === 'STOP') {
+      showToast(`Invoice ${targetInvoice.invoiceNumber} is not active for collection. Action cannot be executed.`, 'info');
+      return;
+    }
 
     // Invariant: Unverified payment claim blocks customer contact decisions (DEC-002)
     if (hasClaimPending && isCustomerContact) {
@@ -954,7 +1347,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Invariant: Settled invoices cannot execute automated chasing
-    if (isPaid && targetDec.action !== 'STOP') {
+    if (isPaid) {
       showToast(`Invoice ${targetInvoice.invoiceNumber} is already settled. Chasing action cannot be executed.`, 'error');
       return;
     }
@@ -981,10 +1374,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let eventTitle = `AI Action Executed: ${targetDec.action}`;
       let eventBadge = `${targetDec.action}`;
 
-      if (targetDec.action === 'STOP') {
-        newNextAction = 'Chasing stopped. Account settled.';
-        eventBadge = 'STOPPED';
-      } else if (targetDec.action === 'ESCALATE') {
+      if (targetDec.action === 'ESCALATE') {
         newStatus = 'escalated';
         newNextAction = 'Escalated to human review / direct phone call';
         eventTitle = 'AI Decision Executed: Escalated to Human Review';
@@ -1035,8 +1425,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Authenticated Persistence
-    const dbRecord = persistedDbDecisions[targetDec.invoiceId] || persistedDbDecisions[decisionId];
-    const realDbDecisionId = (dbRecord && isUuid(dbRecord.id)) ? dbRecord.id : (isUuid(decisionId) ? decisionId : targetDec.id);
+    let dbRecord = persistedDbDecisions[targetDec.invoiceId] || persistedDbDecisions[decisionId];
+    let realDbDecisionId = (dbRecord && isUuid(dbRecord.id)) ? dbRecord.id : (isUuid(decisionId) ? decisionId : targetDec.id);
+
+    // If decision UUID is missing, look up or sync on the fly
+    if (!isUuid(realDbDecisionId)) {
+      const dbDecisions = await accountService.fetchDecisions(workspace.id);
+      const found = dbDecisions.find((d) => d.invoiceId === targetDec.invoiceId || d.id === decisionId);
+      if (found && isUuid(found.id)) {
+        realDbDecisionId = found.id;
+      } else {
+        await accountService.syncDecisions(workspace.id, [targetDec]);
+        const refreshed = await accountService.fetchDecisions(workspace.id);
+        const match = refreshed.find((d) => d.invoiceId === targetDec.invoiceId);
+        if (match && isUuid(match.id)) {
+          realDbDecisionId = match.id;
+        }
+      }
+    }
 
     const res = await accountService.executeDecision(workspace.id, realDbDecisionId);
     if (!res.success) {
@@ -1108,7 +1514,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Authenticated Persistence
-    const res = await accountService.saveDecisionStatus(workspace.id, decisionId, 'DISMISSED');
+    const dbRecord = persistedDbDecisions[targetDec.invoiceId] || persistedDbDecisions[decisionId];
+    const lookupId = (dbRecord && isUuid(dbRecord.id)) ? dbRecord.id : (isUuid(decisionId) ? decisionId : targetDec.invoiceId);
+    const res = await accountService.saveDecisionStatus(workspace.id, lookupId, 'DISMISSED');
     if (!res.success) {
       showToast(res.error || 'Failed to persist decision dismissal to database.', 'error');
       return;
@@ -1121,6 +1529,146 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       [targetDec.invoiceId]: { status: 'DISMISSED' },
     }));
     showToast('AI Decision dismissed and persisted to database.', 'info');
+  };
+
+  const handleRecordDispute = async (invoiceId: string, reason: string): Promise<boolean> => {
+    const targetInv = invoices.find((i) => i.id === invoiceId);
+    if (!targetInv) return false;
+
+    if (workspace.id === 'ws-default' || !isUuid(workspace.id)) {
+      setInvoices((prev) =>
+        prev.map((inv) => {
+          if (inv.id === invoiceId) {
+            return {
+              ...inv,
+              status: 'disputed',
+              nextAction: 'Billing Dispute Mediation (Automated Reminders Paused)',
+              timeline: [
+                {
+                  id: `evt-disp-${Date.now()}`,
+                  invoiceId: inv.id,
+                  timestamp: new Date().toISOString(),
+                  type: 'dispute_opened',
+                  title: 'Billing Dispute Raised ⚠️',
+                  description: reason || 'Customer queried or disputed invoice balance.',
+                  badge: 'DISPUTE',
+                  actor: 'user',
+                },
+                ...inv.timeline,
+              ],
+            };
+          }
+          return inv;
+        })
+      );
+      showToast('Preview mode: Invoice marked as disputed locally.', 'info');
+      return true;
+    }
+
+    const res = await accountService.recordDispute(workspace.id, invoiceId, reason);
+    if (!res.success) {
+      showToast(res.error || 'Failed to record dispute.', 'error');
+      return false;
+    }
+
+    setInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.id === invoiceId) {
+          return {
+            ...inv,
+            status: 'disputed',
+            nextAction: 'Billing Dispute Mediation (Automated Reminders Paused)',
+            timeline: [
+              {
+                id: `evt-disp-${Date.now()}`,
+                invoiceId: inv.id,
+                timestamp: new Date().toISOString(),
+                type: 'dispute_opened',
+                title: 'Billing Dispute Raised ⚠️',
+                description: reason || 'Customer queried or disputed invoice balance.',
+                badge: 'DISPUTE',
+                actor: 'user',
+              },
+              ...inv.timeline,
+            ],
+          };
+        }
+        return inv;
+      })
+    );
+
+    showToast('Dispute recorded. Automated collection outreach paused.', 'success');
+    return true;
+  };
+
+  const handleResolveDispute = async (invoiceId: string, resolutionNote?: string): Promise<boolean> => {
+    const targetInv = invoices.find((i) => i.id === invoiceId);
+    if (!targetInv) return false;
+
+    if (workspace.id === 'ws-default' || !isUuid(workspace.id)) {
+      setInvoices((prev) =>
+        prev.map((inv) => {
+          if (inv.id === invoiceId) {
+            return {
+              ...inv,
+              status: 'chasing',
+              nextAction: 'Dispute resolved. Automated collection resumed.',
+              timeline: [
+                {
+                  id: `evt-res-${Date.now()}`,
+                  invoiceId: inv.id,
+                  timestamp: new Date().toISOString(),
+                  type: 'dispute_resolved',
+                  title: 'Billing Dispute Resolved ✅',
+                  description: resolutionNote || 'Dispute resolved with customer. Collection resumed.',
+                  badge: 'DISPUTE RESOLVED',
+                  actor: 'user',
+                },
+                ...inv.timeline,
+              ],
+            };
+          }
+          return inv;
+        })
+      );
+      showToast('Preview mode: Dispute resolved locally.', 'info');
+      return true;
+    }
+
+    const res = await accountService.resolveDispute(workspace.id, invoiceId, resolutionNote);
+    if (!res.success) {
+      showToast(res.error || 'Failed to resolve dispute.', 'error');
+      return false;
+    }
+
+    setInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.id === invoiceId) {
+          return {
+            ...inv,
+            status: 'chasing',
+            nextAction: 'Dispute resolved. Automated collection resumed.',
+            timeline: [
+              {
+                id: `evt-res-${Date.now()}`,
+                invoiceId: inv.id,
+                timestamp: new Date().toISOString(),
+                type: 'dispute_resolved',
+                title: 'Billing Dispute Resolved ✅',
+                description: resolutionNote || 'Dispute resolved with customer. Collection resumed.',
+                badge: 'DISPUTE RESOLVED',
+                actor: 'user',
+              },
+              ...inv.timeline,
+            ],
+          };
+        }
+        return inv;
+      })
+    );
+
+    showToast('Dispute resolved. Collection resumed.', 'success');
+    return true;
   };
 
   // Create Promise
@@ -1357,6 +1905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         searchQuery,
         setSearchQuery,
         isLoading,
+        loadError,
         handleImportData,
         handleResumeAllCollections,
         handleResumeInvoiceCollection,
@@ -1367,6 +1916,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         handleApproveDecision,
         handleExecuteDecision,
         handleDismissDecision,
+        handleRecordDispute,
+        handleResolveDispute,
         handleCreatePromise,
         handleEscalateInvoice,
         handleSendAiMessage,

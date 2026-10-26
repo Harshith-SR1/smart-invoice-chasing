@@ -19,7 +19,7 @@ export const MarkAsPaidModal: React.FC<MarkAsPaidModalProps> = ({ invoice, onClo
 
   const totalAmount = invoice.amount;
   const paidAmount = invoice.paidAmount || 0;
-  const outstanding = invoice.outstandingAmount !== undefined ? invoice.outstandingAmount : totalAmount - paidAmount;
+  const outstanding = invoice.status === 'paid' ? 0 : (invoice.outstandingAmount !== undefined ? invoice.outstandingAmount : totalAmount - paidAmount);
   const currencySymbol = invoice.currency.includes('INR') || invoice.currency === 'INR' ? '₹' : '$';
 
   const handleConfirm = (e: React.FormEvent) => {

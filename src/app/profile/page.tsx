@@ -14,6 +14,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { validateFullName, validatePhoneNumber } from '../../lib/authValidation';
+import { accountService } from '../../services/accountService';
 
 export default function ProfilePage() {
   const { user, workspace, signOut, showToast } = useApp();
@@ -33,7 +34,7 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const nameRes = validateFullName(fullName);
     if (!nameRes.isValid) {
@@ -47,10 +48,23 @@ export default function ProfilePage() {
     }
 
     setIsSaving(true);
-    setTimeout(() => {
+    try {
+      if (user?.id) {
+        const res = await accountService.updateProfile(user.id, {
+          fullName: nameRes.normalized,
+          phone: phoneRes.e164 || phone,
+        });
+        if (!res.success) {
+          showToast(res.error || 'Failed to update profile in database.', 'error');
+          return;
+        }
+      }
+      showToast('Profile information saved and persisted successfully!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save profile.', 'error');
+    } finally {
       setIsSaving(false);
-      showToast('Profile information saved successfully!', 'success');
-    }, 600);
+    }
   };
 
   const handlePasswordReset = () => {

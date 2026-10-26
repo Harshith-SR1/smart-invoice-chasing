@@ -4,12 +4,13 @@ import React, { useState } from 'react';
 import { Eye } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../layout/PageHeader';
+import { isCollectibleStatus } from '../../types';
 
 export const AgingView: React.FC = () => {
   const { invoices, setSelectedInvoice } = useApp();
   const [selectedBucket, setSelectedBucket] = useState<string>('all');
 
-  const uncollectedInvoices = invoices.filter((i) => i.status !== 'paid');
+  const uncollectedInvoices = invoices.filter((i) => isCollectibleStatus(i.status));
 
   const buckets = [
     {
@@ -21,20 +22,20 @@ export const AgingView: React.FC = () => {
       items: uncollectedInvoices.filter((i) => i.daysOverdue <= 0),
     },
     {
-      id: 'due_soon',
-      label: '1–15 Days Overdue',
-      range: '1–15 days',
+      id: 'days1_7',
+      label: '1–7 Days Overdue',
+      range: '1–7 days',
       color: 'border-teal-500/40 text-teal-400',
       bgColor: 'bg-teal-950/20',
-      items: uncollectedInvoices.filter((i) => i.daysOverdue > 0 && i.daysOverdue <= 15),
+      items: uncollectedInvoices.filter((i) => i.daysOverdue >= 1 && i.daysOverdue <= 7),
     },
     {
-      id: 'days16_30',
-      label: '16–30 Days Overdue',
-      range: '16–30 days',
+      id: 'days8_30',
+      label: '8–30 Days Overdue',
+      range: '8–30 days',
       color: 'border-amber-500/40 text-amber-400',
       bgColor: 'bg-amber-950/20',
-      items: uncollectedInvoices.filter((i) => i.daysOverdue > 15 && i.daysOverdue <= 30),
+      items: uncollectedInvoices.filter((i) => i.daysOverdue >= 8 && i.daysOverdue <= 30),
     },
     {
       id: 'days31_60',
@@ -65,7 +66,7 @@ export const AgingView: React.FC = () => {
   const activeBucketObj = buckets.find((b) => b.id === selectedBucket);
   const displayedInvoices = selectedBucket === 'all' ? uncollectedInvoices : activeBucketObj?.items || [];
 
-  const totalOutstanding = uncollectedInvoices.reduce((sum, i) => sum + (i.outstandingAmount !== undefined ? i.outstandingAmount : i.amount), 0);
+  const totalOutstanding = uncollectedInvoices.reduce((sum, i) => sum + (i.outstandingAmount !== undefined ? i.outstandingAmount : Math.max(0, i.amount - (i.paidAmount || 0))), 0);
 
   return (
     <div className="space-y-4 p-6 max-w-7xl mx-auto font-sans">
@@ -93,7 +94,7 @@ export const AgingView: React.FC = () => {
         </button>
 
         {buckets.map((b) => {
-          const totalAmt = b.items.reduce((s, i) => s + (i.outstandingAmount !== undefined ? i.outstandingAmount : i.amount), 0);
+          const totalAmt = b.items.reduce((s, i) => s + (i.outstandingAmount !== undefined ? i.outstandingAmount : Math.max(0, i.amount - (i.paidAmount || 0))), 0);
           const isSelected = selectedBucket === b.id;
           return (
             <button
@@ -141,8 +142,8 @@ export const AgingView: React.FC = () => {
                   <td className="py-4 px-4 font-bold text-emerald-400">{inv.invoiceNumber}</td>
                   <td className="py-4 px-4 font-sans font-bold text-slate-100">{inv.customerName}</td>
                   <td className="py-4 px-4 font-bold text-white">
-                    {inv.currency} {(inv.outstandingAmount !== undefined ? inv.outstandingAmount : inv.amount).toLocaleString()}
-                    {inv.outstandingAmount !== undefined && inv.outstandingAmount !== inv.amount && (
+                    {inv.currency} {(inv.outstandingAmount !== undefined ? inv.outstandingAmount : Math.max(0, inv.amount - (inv.paidAmount || 0))).toLocaleString()}
+                    {((inv.outstandingAmount !== undefined && inv.outstandingAmount !== inv.amount) || (inv.paidAmount && inv.paidAmount > 0)) && (
                       <div className="text-[10px] text-slate-400 font-normal">Total: {inv.currency} {inv.amount.toLocaleString()}</div>
                     )}
                   </td>
