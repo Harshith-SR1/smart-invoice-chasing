@@ -61,6 +61,8 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith('/forgot-password') ||
       pathname.startsWith('/reset-password') ||
       pathname.startsWith('/help') ||
+      pathname.startsWith('/privacy') ||
+      pathname.startsWith('/terms') ||
       pathname.startsWith('/api/webhooks') ||
       isAuthRoute;
 
