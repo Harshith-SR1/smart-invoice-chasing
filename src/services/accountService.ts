@@ -1,12 +1,14 @@
 import { createClient } from '../lib/supabase/client';
 import { Customer, Invoice, InvoiceStatus, InvoiceEvent, PaymentPromise, Workspace, AutomationRules, AiDecision, PaymentClaimStatus, ImportRowResult, ImportInvoicesBatchResult } from '../types';
 import { initialCustomers, initialInvoices, initialPaymentPromises, initialWorkspace, defaultAutomationRules } from '../lib/mockData';
+import { getPlanConfig } from '../lib/planLimits';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (val?: string | null): boolean => Boolean(val && typeof val === 'string' && UUID_REGEX.test(val));
 
 export class AccountService {
   private static instance: AccountService;
+  private static importLocks = new Map<string, Promise<void>>();
   private supabase = createClient();
 
   public static getInstance(): AccountService {
@@ -779,6 +781,38 @@ export class AccountService {
       };
     }
 
+    // Workspace-level serialized execution to prevent concurrent import quota bypass
+    const previousLock = AccountService.importLocks.get(workspaceId) || Promise.resolve();
+    let releaseLock: () => void = () => {};
+    const currentLock = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    AccountService.importLocks.set(workspaceId, currentLock);
+
+    await previousLock;
+    try {
+      return await this.executeImportInvoicesBatch(workspaceId, invoices, options, sb, duplicatePolicy);
+    } finally {
+      releaseLock();
+      if (AccountService.importLocks.get(workspaceId) === currentLock) {
+        AccountService.importLocks.delete(workspaceId);
+      }
+    }
+  }
+
+  private async executeImportInvoicesBatch(
+    workspaceId: string,
+    invoices: Array<any>,
+    options: {
+      fileName?: string;
+      batchId?: string;
+      duplicatePolicy?: 'update' | 'skip';
+      supabaseClient?: any;
+    },
+    sb: any,
+    duplicatePolicy: 'update' | 'skip'
+  ): Promise<ImportInvoicesBatchResult> {
+
     // 1. Session and Workspace Verification
     let isAuthorized = false;
     try {
@@ -1007,7 +1041,137 @@ export class AccountService {
       });
     }
 
-    // 4. Upsert Customers first to obtain authoritative UUIDs for customer_id FK
+    // 4. Server-Side Plan Limit & Active Quota Pre-Check
+    // Genuine new rows that are not yet in the workspace
+    const genuinelyNewRows = validRows.filter((r) => !existingMap.has(r.invoiceNumber.toLowerCase()));
+    const newActiveCount = genuinelyNewRows.filter((r) => r.status !== 'paid' && r.outstandingAmount > 0).length;
+
+    if (newActiveCount > 0) {
+      const { data: sub, error: subErr } = await sb
+        .from('subscriptions')
+        .select('plan_id, status')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+
+      if (subErr || !sub || !sub.plan_id) {
+        return {
+          success: false,
+          totalRows: invoices.length,
+          importedCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          rejectedCount: invoices.length,
+          errors: [
+            subErr
+              ? `Database check for subscription plan failed: ${subErr.message}`
+              : 'Workspace subscription plan not found. Unable to verify invoice plan limits. Please configure your workspace billing plan.',
+          ],
+          rowResults: invoices.map((inv, idx) => ({
+            rowNumber: idx + 1,
+            invoiceNumber: String(inv.invoiceNumber || `ROW-${idx + 1}`),
+            status: 'rejected' as const,
+            error: 'Unable to verify workspace subscription plan.',
+          })),
+        };
+      }
+
+      const planConfig = getPlanConfig(sub.plan_id);
+      if (!planConfig) {
+        return {
+          success: false,
+          totalRows: invoices.length,
+          importedCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          rejectedCount: invoices.length,
+          errors: [`Invalid or unrecognized subscription plan (${sub.plan_id}). Unable to verify plan limits.`],
+          rowResults: invoices.map((inv, idx) => ({
+            rowNumber: idx + 1,
+            invoiceNumber: String(inv.invoiceNumber || `ROW-${idx + 1}`),
+            status: 'rejected' as const,
+            error: `Unrecognized plan: ${sub.plan_id}`,
+          })),
+        };
+      }
+
+      if (sub.status === 'canceled') {
+        return {
+          success: false,
+          totalRows: invoices.length,
+          importedCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          rejectedCount: invoices.length,
+          errors: ['Workspace subscription is canceled. New invoice creation is disabled.'],
+          rowResults: invoices.map((inv, idx) => ({
+            rowNumber: idx + 1,
+            invoiceNumber: String(inv.invoiceNumber || `ROW-${idx + 1}`),
+            status: 'rejected' as const,
+            error: 'Subscription is canceled.',
+          })),
+        };
+      }
+
+      const { data: currentInvoices, error: countErr } = await sb
+        .from('invoices')
+        .select('id, status')
+        .eq('workspace_id', workspaceId);
+
+      if (countErr) {
+        return {
+          success: false,
+          totalRows: invoices.length,
+          importedCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          rejectedCount: invoices.length,
+          errors: [`Failed to verify active invoice quota: ${countErr.message}`],
+          rowResults: invoices.map((inv, idx) => ({
+            rowNumber: idx + 1,
+            invoiceNumber: String(inv.invoiceNumber || `ROW-${idx + 1}`),
+            status: 'rejected' as const,
+            error: countErr.message,
+          })),
+        };
+      }
+
+      const currentActiveCount = (currentInvoices || []).filter((inv: any) => inv.status !== 'paid').length;
+      const projectedActive = currentActiveCount + newActiveCount;
+
+      if (projectedActive > planConfig.maxActiveInvoices) {
+        return {
+          success: false,
+          totalRows: invoices.length,
+          importedCount: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          skippedCount: 0,
+          rejectedCount: invoices.length,
+          errors: [
+            `Plan limit exceeded: Your ${planConfig.name} plan allows up to ${planConfig.maxActiveInvoices} active invoices. Workspace currently has ${currentActiveCount} active invoice(s). Importing ${newActiveCount} new invoice(s) would exceed your limit (${projectedActive}/${planConfig.maxActiveInvoices}). Please upgrade your plan or settle existing invoices.`,
+          ],
+          rowResults: invoices.map((inv, idx) => ({
+            rowNumber: idx + 1,
+            invoiceNumber: String(inv.invoiceNumber || `ROW-${idx + 1}`),
+            status: 'rejected' as const,
+            error: `Plan limit exceeded (${planConfig.name}: max ${planConfig.maxActiveInvoices} active invoices).`,
+          })),
+          planLimitExceeded: {
+            planId: planConfig.id,
+            planName: planConfig.name,
+            planLimit: planConfig.maxActiveInvoices,
+            currentUsage: currentActiveCount,
+            attemptedNew: newActiveCount,
+          },
+        };
+      }
+    }
+
+    // 5. Upsert Customers to obtain authoritative UUIDs for customer_id FK
     const customerMap = new Map<string, { name: string; email: string; company: string }>();
     validRows.forEach((r) => {
       const key = r.customerEmail;
@@ -1041,7 +1205,7 @@ export class AccountService {
       }
     }
 
-    // 5. Categorize rows into Inserts and Updates with Financial Safety
+    // 6. Categorize rows into Inserts and Updates with Financial Safety
     const toInsert: any[] = [];
     const toUpdate: Array<{ id: string; fields: any; rowResult: ImportRowResult }> = [];
 

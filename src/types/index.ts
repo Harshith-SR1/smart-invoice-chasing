@@ -317,5 +317,12 @@ export interface ImportInvoicesBatchResult {
   errors: string[];
   rowResults: ImportRowResult[];
   isPreview?: boolean;
+  planLimitExceeded?: {
+    planId: string;
+    planName: string;
+    planLimit: number;
+    currentUsage: number;
+    attemptedNew: number;
+  };
 }
 

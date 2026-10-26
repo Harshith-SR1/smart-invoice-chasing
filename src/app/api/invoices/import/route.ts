@@ -115,7 +115,8 @@ export async function POST(req: NextRequest) {
       supabaseClient: supabaseUser,
     });
 
-    return NextResponse.json(result, { status: result.success ? 200 : 207 });
+    const status = result.success ? 200 : result.planLimitExceeded ? 403 : 207;
+    return NextResponse.json(result, { status });
   } catch (err: any) {
     return NextResponse.json(
       {

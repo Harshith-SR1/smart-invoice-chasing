@@ -1,4 +1,4 @@
-﻿/**
+/**
  * VERIFICATION SCRIPT: TASK INVOICE-IMPORT-PERSIST-001
  * Persist Imported Invoices to Authenticated Workspace
  *
@@ -86,6 +86,10 @@ function createMockSupabase(initialState = {}) {
     invoices: new Map(initialState.invoices || []),
     payments: new Map(initialState.payments || []),
     collection_events: new Map(initialState.collection_events || []),
+    subscriptions: new Map(initialState.subscriptions || [
+      ['sub-1', { id: 'sub-1', workspace_id: 'a1111111-1111-4111-a111-111111111111', plan_id: 'growth', status: 'active' }],
+      ['sub-2', { id: 'sub-2', workspace_id: 'b2222222-2222-4222-b222-222222222222', plan_id: 'growth', status: 'active' }],
+    ]),
   };
 
   let currentUser = 'currentUser' in initialState ? initialState.currentUser : { id: 'user-alice', email: 'alice@alpha.io' };
@@ -156,6 +160,7 @@ function createMockSupabase(initialState = {}) {
                   return Promise.resolve({ data: rows, error: null });
                 },
                 order: () => Promise.resolve({ data: rows, error: null }),
+                then: (resolve) => resolve({ data: rows, error: null }),
               };
             },
             in(col, vals) {

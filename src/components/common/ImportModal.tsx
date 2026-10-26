@@ -609,13 +609,39 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
                 <AlertCircle className="w-8 h-8" />
               </div>
               <div className="space-y-1.5 max-w-md mx-auto">
-                <h3 className="text-xl font-bold text-white">Import Persistence Failed</h3>
+                <h3 className="text-xl font-bold text-white">
+                  {importResult?.planLimitExceeded ? 'Plan Limit Exceeded' : 'Import Persistence Failed'}
+                </h3>
                 <p className="text-xs text-rose-300">
                   {importError || 'An error prevented the invoices from being saved to the database.'}
                 </p>
-                <p className="text-[11px] text-slate-400 mt-2">
-                  No partial or invalid financial records were committed. You can review your file and retry.
-                </p>
+                {importResult?.planLimitExceeded ? (
+                  <div className="mt-4 p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 text-left space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Current Plan:</span>
+                      <span className="text-white font-semibold">{importResult.planLimitExceeded.planName}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Plan Limit:</span>
+                      <span className="text-emerald-400 font-semibold">{importResult.planLimitExceeded.planLimit} active invoices</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Current Active Invoices:</span>
+                      <span className="text-amber-400 font-semibold">{importResult.planLimitExceeded.currentUsage}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Attempted Invoices:</span>
+                      <span className="text-rose-400 font-semibold">+{importResult.planLimitExceeded.attemptedNew}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                      No partial records were written. Settle existing invoices or upgrade your plan to increase limits.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    No partial or invalid financial records were committed. You can review your file and retry.
+                  </p>
+                )}
               </div>
             </div>
           )}
