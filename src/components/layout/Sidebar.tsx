@@ -32,7 +32,6 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ActiveScreen } from '../../types';
-import { ImportModal } from '../common/ImportModal';
 
 // Shared state subscription for mobile navigation drawer
 const navListeners = new Set<(open: boolean) => void>();
@@ -279,7 +278,6 @@ export const Navbar: React.FC = () => {
   const { isMobileNavOpen, toggleMobileNav } = useMobileNav();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [searchMode, setSearchMode] = useState<'normal' | 'ai'>('normal');
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -374,8 +372,6 @@ export const Navbar: React.FC = () => {
 
   return (
     <header className="h-16 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl sticky top-0 z-30 px-6 flex items-center justify-between font-sans">
-      <ImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
-
       {/* Brand Header & Mobile Navigation Toggle — Left */}
       <div className="flex items-center gap-2.5 shrink-0">
         <button
@@ -519,15 +515,6 @@ export const Navbar: React.FC = () => {
 
       {/* Right Navbar Controls */}
       <div className="flex items-center gap-3">
-        {/* Quick Action Button */}
-        <button
-          onClick={() => setIsImportModalOpen(true)}
-          className="hidden sm:flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          + Import Invoices
-        </button>
-
         {/* Notifications Icon */}
         <button
           title="Notifications"

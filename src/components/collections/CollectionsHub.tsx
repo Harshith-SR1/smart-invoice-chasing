@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Eye, ShieldAlert, Sparkles, Send, FileSpreadsheet } from 'lucide-react';
+import { Eye, ShieldAlert, Sparkles, Send, FileSpreadsheet, Brain } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Invoice, isCollectibleStatus } from '../../types';
+import { Invoice, AiDecision, isCollectibleStatus } from '../../types';
 import { MarkAsPaidModal } from '../common/MarkAsPaidModal';
 import { PageHeader } from '../layout/PageHeader';
 import { evaluateInvoiceDecision } from '../../lib/decisionEngine';
 import { exportInvoicesToCsv } from '../../lib/invoiceExport';
+import { DecisionExplanationDrawer } from '../decisions/DecisionExplanationDrawer';
 
 export const CollectionsHub: React.FC = () => {
   const {
@@ -26,6 +27,7 @@ export const CollectionsHub: React.FC = () => {
   } = useApp();
 
   const [markingPaidInvoice, setMarkingPaidInvoice] = useState<Invoice | null>(null);
+  const [explainingTarget, setExplainingTarget] = useState<{ invoice: Invoice; decision: AiDecision } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   const filterTabs = [
@@ -201,17 +203,39 @@ export const CollectionsHub: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono">
-                          {decision.action}
-                        </span>
-                        <span className="block text-[11px] text-slate-300 max-w-xs truncate mt-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-mono">
+                            {decision.action}
+                          </span>
+                          <button
+                            onClick={() => setExplainingTarget({ invoice: inv, decision })}
+                            title="Audit and explain this decision"
+                            className="text-[10px] font-mono font-bold text-[#8B7CFF] hover:text-[#a89dff] flex items-center gap-1 underline transition cursor-pointer"
+                          >
+                            <Brain className="w-3 h-3" />
+                            <span>Explain</span>
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => setExplainingTarget({ invoice: inv, decision })}
+                          title="Click to view full decision explanation"
+                          className="block text-left text-[11px] text-slate-300 hover:text-white max-w-xs truncate mt-0.5 cursor-pointer transition"
+                        >
                           {decision.reason}
-                        </span>
+                        </button>
                       </td>
                       <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px] max-w-xs truncate">
                         {inv.lastCustomerReply ? `"${inv.lastCustomerReply}"` : 'No reply recorded'}
                       </td>
                       <td className="py-3.5 px-6 text-right space-x-2">
+                        <button
+                          onClick={() => setExplainingTarget({ invoice: inv, decision })}
+                          title="Audit & Explain Decision"
+                          className="p-2 text-[#8B7CFF] hover:text-white bg-slate-900 border border-slate-800 rounded-xl transition cursor-pointer hover:border-[#8B7CFF]/50"
+                        >
+                          <Brain className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => setSelectedInvoice(inv)}
                           title="View Timeline"
@@ -259,6 +283,16 @@ export const CollectionsHub: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Shared Read-Only Decision Explanation Drawer */}
+      <DecisionExplanationDrawer
+        isOpen={!!explainingTarget}
+        onClose={() => setExplainingTarget(null)}
+        invoice={explainingTarget?.invoice || null}
+        decision={explainingTarget?.decision || null}
+        customer={explainingTarget ? customers.find((c) => c.id === explainingTarget.invoice.customerId) || null : null}
+        promises={promises}
+      />
     </div>
   );
 };

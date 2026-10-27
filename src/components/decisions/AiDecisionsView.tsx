@@ -2,15 +2,18 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Send, Eye, Check, XCircle, Sparkles, Bot, ShieldAlert, Clock, ArrowRight, Sliders } from 'lucide-react';
+import { Send, Eye, Check, XCircle, Sparkles, Bot, ShieldAlert, Clock, ArrowRight, Sliders, Brain } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../layout/PageHeader';
-import { DecisionStatus } from '../../types';
+import { DecisionStatus, Invoice, AiDecision } from '../../types';
+import { DecisionExplanationDrawer } from './DecisionExplanationDrawer';
 
 export const AiDecisionsView: React.FC = () => {
   const {
     decisions,
     invoices,
+    customers,
+    promises,
     setSelectedInvoice,
     setReviewMessageInvoice,
     handleApproveDecision,
@@ -19,6 +22,7 @@ export const AiDecisionsView: React.FC = () => {
   } = useApp();
 
   const [activeStatusFilter, setActiveStatusFilter] = useState<'ALL' | DecisionStatus>('ALL');
+  const [explainingTarget, setExplainingTarget] = useState<{ invoice: Invoice; decision: AiDecision } | null>(null);
 
   const filteredDecisions = decisions.filter((d) => {
     if (activeStatusFilter === 'ALL') return true;
@@ -130,9 +134,21 @@ export const AiDecisionsView: React.FC = () => {
                       <span className="font-mono text-[10px] uppercase font-bold tracking-wider">
                         ACTION: {dec.action}
                       </span>
-                      <span className="font-mono text-[10px] font-bold">
-                        Confidence: {dec.confidence}%
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] font-bold">
+                          Confidence: {dec.confidence}%
+                        </span>
+                        {relatedInvoice && (
+                          <button
+                            onClick={() => setExplainingTarget({ invoice: relatedInvoice, decision: dec })}
+                            title="Audit this decision and review transparency details"
+                            className="px-2 py-0.5 rounded-lg bg-slate-900/80 hover:bg-slate-900 text-[#8B7CFF] hover:text-white border border-[#8B7CFF]/40 text-[10px] font-mono font-bold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Brain className="w-3 h-3" />
+                            <span>Explain</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-white font-semibold text-xs leading-snug">{dec.reason}</p>
                   </div>
@@ -188,15 +204,26 @@ export const AiDecisionsView: React.FC = () => {
                   )}
 
                   <div className="flex items-center justify-between gap-2 pt-1 text-xs">
-                    <button
-                      onClick={() => {
-                        if (relatedInvoice) setSelectedInvoice(relatedInvoice);
-                      }}
-                      className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] font-medium"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      View Invoice Dossier
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => {
+                          if (relatedInvoice) setSelectedInvoice(relatedInvoice);
+                        }}
+                        className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px] font-medium"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Dossier
+                      </button>
+                      {relatedInvoice && (
+                        <button
+                          onClick={() => setExplainingTarget({ invoice: relatedInvoice, decision: dec })}
+                          className="text-[#8B7CFF] hover:text-[#a89dff] flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+                        >
+                          <Brain className="w-3.5 h-3.5" />
+                          Audit &amp; Explain
+                        </button>
+                      )}
+                    </div>
 
                     {dec.status === 'PENDING' && dec.action !== 'STOP' && (
                       <div className="flex items-center gap-2.5">
@@ -228,6 +255,16 @@ export const AiDecisionsView: React.FC = () => {
           <p className="text-slate-500 text-xs">The AI Collection Decision Engine evaluates receivables automatically as events occur.</p>
         </div>
       )}
+
+      {/* Shared Read-Only Decision Explanation Drawer */}
+      <DecisionExplanationDrawer
+        isOpen={!!explainingTarget}
+        onClose={() => setExplainingTarget(null)}
+        invoice={explainingTarget?.invoice || null}
+        decision={explainingTarget?.decision || null}
+        customer={explainingTarget ? customers.find((c) => c.id === explainingTarget.invoice.customerId) || null : null}
+        promises={promises}
+      />
     </div>
   );
 };

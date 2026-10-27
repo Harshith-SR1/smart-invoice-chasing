@@ -115,12 +115,20 @@ assert(
   'isItemActive maps /recovery-reports to the Reports nav item'
 );
 
-// 8. Verify top navbar controls are preserved
+// 8. Verify top navbar has duplicate "+ Import Invoices" removed, and Dashboard retains it
 assert(
-  sidebarContent.includes('+ Import Invoices') &&
-  sidebarContent.includes('ImportModal') &&
-  sidebarContent.includes('isImportModalOpen'),
-  'Top Navbar preserves "+ Import Invoices" control and modal'
+  !sidebarContent.includes('+ Import Invoices') &&
+  !sidebarContent.includes('isImportModalOpen'),
+  'Top Navbar cleanly removes duplicate "+ Import Invoices" button and modal state'
+);
+
+const dashboardPath = path.join(rootDir, 'src', 'components', 'dashboard', 'MainDashboard.tsx');
+const dashboardContent = fs.readFileSync(dashboardPath, 'utf8');
+assert(
+  dashboardContent.includes('+ Import Invoices') &&
+  dashboardContent.includes('Configure AI Rules') &&
+  dashboardContent.includes('Upload CSV or Excel'),
+  'Dashboard preserves primary "+ Import Invoices" entry point and "Configure AI Rules"'
 );
 
 assert(
