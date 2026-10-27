@@ -10,13 +10,16 @@ import {
   FileText,
   Inbox,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PageHeader } from '../layout/PageHeader';
+import { buildRecoveryReportPdfBlob, downloadPdfBlob } from '../../lib/pdfReportGenerator';
 
 export const RecoveryReportsView: React.FC = () => {
-  const { reportSummary, invoices, workspace, showToast } = useApp();
+  const { reportSummary, invoices, workspace, promises, showToast } = useApp();
   const [selectedReportInvoice, setSelectedReportInvoice] = useState<any | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
   const isINR = workspace.currency?.includes('INR') || workspace.currency === 'INR';
   const currencySymbol = isINR ? '₹' : '$';
@@ -29,10 +32,23 @@ export const RecoveryReportsView: React.FC = () => {
     return `${currencySymbol}${amt.toLocaleString()}`;
   };
 
-  const handleExportPDF = () => {
-    showToast(`Opening print dialog for ${reportSummary.month} ${reportSummary.year} Recovery Audit Report...`, 'info');
-    if (typeof window !== 'undefined') {
-      window.print();
+  const handleExportPDF = async () => {
+    if (isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    try {
+      showToast(`Generating ${reportSummary.month} ${reportSummary.year} Recovery Audit Report PDF...`, 'info');
+      const { blob, filename } = buildRecoveryReportPdfBlob({
+        reportSummary,
+        workspace,
+        promises,
+      });
+      downloadPdfBlob(blob, filename);
+      showToast(`Downloaded ${filename} successfully!`, 'success');
+    } catch (err: any) {
+      console.error('Failed to generate PDF recovery report:', err);
+      showToast(`Failed to generate PDF report: ${err?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -135,10 +151,21 @@ export const RecoveryReportsView: React.FC = () => {
             </button>
             <button
               onClick={handleExportPDF}
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+              disabled={isGeneratingPdf}
+              className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+              title="Download executive-grade PDF recovery audit report"
             >
-              <Download className="w-4 h-4" />
-              Download PDF Report
+              {isGeneratingPdf ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                  Generating PDF...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Download PDF Report
+                </>
+              )}
             </button>
           </>
         }
